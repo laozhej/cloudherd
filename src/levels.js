@@ -1,0 +1,107 @@
+// The week. Each day adds one new idea on top of the last.
+// wind.angle: direction the wind blows TOWARD, in degrees (0 = east, 90 = south toward the camera).
+// lakes: seconds between clouds rising off each lake at midday (0 = quiet).
+// sea: seconds between clouds rolling in off the sea from upwind.
+import { LAYOUT } from './island.js';
+
+const F = LAYOUT.forest;
+
+export const DAYS = [
+  {
+    key: 'd1', duration: 175, tutorial: true,
+    crops: [null, 'wheat', 'wheat', null, null, null], startGrowth: 0.25,
+    moisture: { base: 0.3, spread: 0.16 },
+    wind: { angle: 8, speed: 0.55, wander: 0.18 },
+    lakes: { lake: 6.5, tarn: 0 }, sea: { interval: 0 }, maxClouds: 12,
+    evap: 0.006, dryRate: 0.0035, growMul: 1.1, wiltMul: 0.6,
+    startClouds: [[-31, 4, 1.1], [-28, 15, 1], [-24, -6, 1]],
+    goals: [{ type: 'harvest', n: 3 }],
+    stars: [1000, 1450],
+  },
+  {
+    key: 'd2', duration: 200,
+    crops: ['wheat', 'sunflower', 'pumpkin', 'lavender', null, null], startGrowth: 0.2,
+    moisture: { base: 0.3, spread: 0.2 },
+    wind: { angle: -20, speed: 0.75, wander: 0.35 },
+    lakes: { lake: 8, tarn: 9 }, sea: { interval: 9, mass: [1, 1.5] }, maxClouds: 16,
+    evap: 0.009, dryRate: 0.0042, growMul: 1, wiltMul: 0.8,
+    startClouds: [[-30, 0, 1.2], [-6, -22, 1], [20, 4, 1.2], [-8, 24, 1]],
+    goals: [{ type: 'harvest', n: 8 }],
+    stars: [1900, 2650],
+  },
+  {
+    key: 'd3', duration: 210,
+    crops: ['wheat', null, null, 'lavender', 'sunflower', null], startGrowth: 0.2,
+    moisture: { base: 0.26, spread: 0.2, forest: 0.08 },
+    wind: { angle: 125, speed: 0.8, wander: 0.3 },
+    lakes: { lake: 9, tarn: 7 }, sea: { interval: 10, mass: [1, 1.6] }, maxClouds: 16,
+    evap: 0.01, dryRate: 0.0045, growMul: 1, wiltMul: 0.7,
+    fire: { interval: 28, first: 14, area: { x: F.x, z: F.z, r: F.r + 2 }, spread: 0.07 },
+    startClouds: [[-6, -22, 1.4], [10, -10, 1.2], [28, 6, 1.1], [-20, -2, 1]],
+    goals: [{ type: 'harvest', n: 5 }, { type: 'houses', max: 0 }],
+    stars: [1100, 1550],
+  },
+  {
+    key: 'd4', duration: 210,
+    crops: ['wheat', 'sunflower', null, null, 'pumpkin', 'lavender'], startGrowth: 0.2,
+    moisture: { base: 0.3, spread: 0.2 },
+    wind: { angle: 0, speed: 0.85, wander: 0.25 },
+    lakes: { lake: 7.5, tarn: 8.5 }, sea: { interval: 10, mass: [1, 1.5] }, maxClouds: 16,
+    evap: 0.009, dryRate: 0.0045, growMul: 1, wiltMul: 0.85,
+    fair: { from: 0.28, to: 0.86 }, laundry: true,
+    startClouds: [[-30, 2, 1.2], [-10, 18, 1], [-4, -12, 1.1]],
+    goals: [{ type: 'harvest', n: 8 }, { type: 'fair', min: 0.6 }],
+    stars: [2200, 2900],
+  },
+  {
+    key: 'd5', duration: 220,
+    crops: ['lavender', 'wheat', 'pumpkin', 'sunflower', null, null], startGrowth: 0.2,
+    moisture: { base: 0.28, spread: 0.2, forest: 0.2 },
+    wind: { angle: -95, speed: 0.8, wander: 0.4 },
+    lakes: { lake: 9, tarn: 10 }, sea: { interval: 6.5, mass: [1.5, 2.6] }, maxClouds: 18,
+    evap: 0.009, dryRate: 0.0045, growMul: 1, wiltMul: 0.85,
+    rods: true, fireSpread: 0.06,
+    startClouds: [[0, 30, 2], [16, 26, 1.8], [-20, 30, 2.2], [30, 20, 1.5]],
+    goals: [{ type: 'harvest', n: 7 }, { type: 'rods', n: 5 }],
+    stars: [1900, 2600],
+  },
+  {
+    key: 'd6', duration: 220,
+    crops: [null, null, 'pumpkin', 'lavender', 'wheat', 'sunflower'], startGrowth: 0.2,
+    moisture: { base: 0.3, spread: 0.2 },
+    wind: { angle: -80, speed: 0.7, wander: 0.35 },
+    lakes: { lake: 8, tarn: 8.5 }, sea: { interval: 11, mass: [1, 1.5] }, maxClouds: 20,
+    evap: 0.009, dryRate: 0.0045, growMul: 1, wiltMul: 0.75,
+    smog: { interval: 13, first: 8 },
+    startClouds: [[-30, 4, 1.2], [-10, 22, 1], [8, -16, 1.1]],
+    goals: [{ type: 'harvest', n: 7 }, { type: 'smog', n: 8 }],
+    stars: [2200, 3000],
+  },
+  {
+    key: 'd7', duration: 240, finale: true,
+    crops: ['wheat', 'sunflower', null, 'lavender', 'pumpkin', null], startGrowth: 0.15,
+    moisture: { base: 0.16, spread: 0.12, forest: 0.06 },
+    wind: { angle: 30, speed: 0.8, wander: 0.45 },
+    lakes: { lake: 7, tarn: 7.5 }, sea: { interval: 7, mass: [1, 2] }, maxClouds: 20,
+    evap: 0.011, dryRate: 0.0046, growMul: 1, wiltMul: 0.8,
+    fire: { interval: 36, first: 40, area: { x: F.x, z: F.z, r: F.r + 4 }, spread: 0.065 },
+    fair: { from: 0.5, to: 1.0, wantsRain: true }, gauge: { from: 0.5, need: 8 },
+    startClouds: [[-30, 4, 1.4], [-6, -22, 1.2], [20, 4, 1.2], [-10, 24, 1], [10, 30, 1.3]],
+    goals: [{ type: 'harvest', n: 7 }, { type: 'gauge' }, { type: 'houses', max: 0 }],
+    stars: [2700, 3400],
+  },
+];
+
+// open sky: no clock, no goals, everything switched on
+export const FREE = {
+  key: 'free', free: true, duration: 300,
+  crops: ['wheat', 'sunflower', 'pumpkin', 'lavender', 'wheat', 'sunflower'], startGrowth: 0.3,
+  moisture: { base: 0.35, spread: 0.2 },
+  wind: { angle: 10, speed: 0.7, wander: 0.5 },
+  lakes: { lake: 7, tarn: 8 }, sea: { interval: 8, mass: [1, 2] }, maxClouds: 22,
+  evap: 0.008, dryRate: 0.005, growMul: 1.1, wiltMul: 0.6,
+  rods: true,
+  startClouds: [[-30, 4, 1.2], [-6, -22, 1], [20, 4, 1.2], [-10, 24, 1], [10, 30, 1.3], [30, 20, 2]],
+  goals: [],
+  stars: [99999, 99999],
+};
