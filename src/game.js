@@ -10,6 +10,8 @@ import { t } from './i18n.js';
 import { computeMods, addXp } from './profile.js';
 
 const deg = (d) => (d * Math.PI) / 180;
+// a thunderhead this close to a lightning rod sends most of its bolts down the rod
+const inReach = (tip, c) => Math.hypot(tip.x - c.x, tip.z - c.z) < c.R + 5;
 
 export function createGame() {
   const R = {
@@ -53,7 +55,7 @@ export function createGame() {
       if (G.sprite.drawing || a.holder || b.holder) R.stats.drawMerges++;
       R.stats.maxCloud = Math.max(R.stats.maxCloud, a.mass);
       if (a.kind === 'acid' && wasKind !== 'acid') toast('toast.acid', null, 'warn', 6);
-      if (a.mass >= STORM_MASS && a.mass - b.mass < STORM_MASS) { toast('toast.storm', null, 'warn', 20); A?.rumble(); }
+      if (a.mass >= STORM_MASS && a.mass - b.mass < STORM_MASS) { toast(R.day?.rods || R.day?.free ? 'toast.stormRod' : 'toast.storm', null, 'warn', 20); A?.rumble(); }
     };
     C.onSwell = () => A?.swell();
     let grabT = 0;
@@ -91,7 +93,7 @@ export function createGame() {
     C.onStrike = (c) => {
       let tx, tz, rod = null;
       if (R.day.rods || R.day.free) {
-        for (const tip of G.props.tips) if (Math.hypot(tip.x - c.x, tip.z - c.z) < c.R + 5 && Math.random() < 0.8) { rod = tip; break; }
+        for (const tip of G.props.tips) if (inReach(tip, c) && Math.random() < 0.8) { rod = tip; break; }
       }
       if (rod) { tx = rod.x; tz = rod.z; }
       else { const a = Math.random() * TAU, r = Math.sqrt(Math.random()) * c.R * 0.7; tx = c.x + Math.cos(a) * r; tz = c.z + Math.sin(a) * r; }
@@ -311,6 +313,9 @@ export function createGame() {
 
   // ---------------------------------------------------------------- per frame
   function update(dt) {
+    // the rods are live on rod days; the rod tips and their HUD markers show when a thunderhead is in reach
+    const live = (R.state === 'playing' || R.state === 'dusk') && !!(R.day?.rods || R.day?.free);
+    for (const tip of G.props.tips) { tip.live = live; tip.near = live && G.clouds.list.some((c) => c.storm && inReach(tip, c)); }
     if (R.state !== 'playing' && R.state !== 'dusk' && R.state !== 'intro' && R.state !== 'attract') return;
     const day = R.day;
     windUpdate(dt);

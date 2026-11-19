@@ -111,6 +111,14 @@ export function createHud(root) {
   lh.className = 'mk zone card';
   lh.innerHTML = `<div class="k">${ICON.bolt.replace('<svg', '<svg width="14" height="14"')}<span>${t('hud.lighthouse')}</span></div><div class="bar"><i></i></div>`;
   marks.appendChild(lh);
+  // a bolt over each lightning rod on rod days, so nobody has to hunt for three thin poles
+  const rodMarks = G.props.tips.map(() => {
+    const el = document.createElement('div');
+    el.className = 'mk';
+    el.innerHTML = `<div class="rodmk">${ICON.bolt}</div>`;
+    marks.appendChild(el);
+    return { el, inner: el.firstChild };
+  });
 
   // ---------------------------------------------------------------- panels
   const setPanel = (kind, html, dim = true) => {
@@ -337,7 +345,11 @@ export function createHud(root) {
       el.classList.remove('on'); void el.offsetWidth; el.classList.add('on');
     },
     flashTitle(text) { const el = $('bigtitle'); el.textContent = text; el.classList.remove('on'); void el.offsetWidth; el.classList.add('on'); },
-    setDay(idx) { $('h-dayk').textContent = dayLabel(idx); $('h-dayname').textContent = dayName(idx); },
+    setDay(idx) {
+      $('h-dayk').textContent = dayLabel(idx); $('h-dayname').textContent = dayName(idx);
+      // start the new day without yesterday's chips fading out over it
+      zone.style.opacity = lh.style.opacity = 0; for (const m of rodMarks) m.el.style.opacity = 0;
+    },
     update(dt) {
       if (!hudEl.classList.contains('on')) return;
       const R = G.game.R;
@@ -447,6 +459,16 @@ export function createHud(root) {
         const p = project(L.x, groundAt(L.x, L.z) + 14, L.z);
         if (p) { lh.style.opacity = 1; lh.style.transform = `translate(${p[0].toFixed(1)}px, ${p[1].toFixed(1)}px)`; lh.querySelector('.bar i').style.width = Math.round(clamp(R.rodHits / rodGoal.n, 0, 1) * 100) + '%'; }
       } else lh.style.opacity = 0;
+      // rod markers: they light up while a thunderhead is in reach, and flash on a catch
+      G.props.tips.forEach((tip, i) => {
+        const m = rodMarks[i];
+        const p = tip.live && project(tip.x, tip.y + 1.2, tip.z);
+        if (!p) { m.el.style.opacity = 0; return; }
+        m.el.style.opacity = 1;
+        m.el.style.transform = `translate(${p[0].toFixed(1)}px, ${p[1].toFixed(1)}px)`;
+        m.inner.classList.toggle('near', !!tip.near);
+        m.inner.classList.toggle('hit', tip.glow > 0.35);
+      });
     },
     clearFx() { pops.innerHTML = ''; toasts.innerHTML = ''; hud.tip(null); },
   };

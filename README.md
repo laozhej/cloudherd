@@ -50,7 +50,7 @@
 | 周二 · 田忙 | 四块田、四种作物，海上来云 |
 | 周三 · 山火 | 低语林会自燃，风把火往村子吹，不能让房子烧掉 |
 | 周四 · 晴集 | 广场上赶集，雨要绕开集市，也别淋湿晾着的衣服 |
-| 周五 · 雷云 | 堆出雷云，抓住它停在避雷针上空接闪电，点亮灯塔 |
+| 周五 · 雷云 | 堆出雷云，抓住它停在避雷针上空接闪电，点亮灯塔。三根避雷针头顶都有闪电标记，雷云够得着时标记会亮起来 |
 | 周六 · 罐头厂 | 烟囱吐出的烟雾抓不住，只能吹散或吹到海上；混进云里会下酸雨 |
 | 周日 · 祈雨节 | 最干的一天，傍晚的祈雨节需要把雨下在广场上，装满雨桶后迎来一场大雨 |
 
@@ -94,6 +94,7 @@ node tools/shot.mjs title                                   # 启动并截取标
 node tools/shot.mjs tools/sc-firstrun.mjs --notest=1        # 首次游玩：真实鼠标点击、走完教学
 node tools/shot.mjs tools/sc-gather.mjs                     # 真实鼠标聚云、快速拖动、松手下雨、扔云
 node tools/shot.mjs tools/sc-tools.mjs                      # 商店购买、四种道具、小风灵和结算
+node tools/shot.mjs tools/sc-rods.mjs                       # 避雷针标记、雷云够得着时的提示、周五介绍文字（加 --lang=zh 查中文）
 node tools/shot.mjs tools/sc-alldays.mjs                    # 依次运行七天，检查报错
 node tools/shot.mjs tools/sc-bot.mjs --runs=3 --skills=1,0.5,0.25   # 自动驾驶在每一天打若干局，输出过关率和星级
 node tools/shot.mjs tools/sc-checks.mjs                     # 音效、帧时间、进度解锁
@@ -158,7 +159,7 @@ The default deliberately avoids right-button drags, which some browsers treat as
 | Tuesday · Busy Fields | Four fields, four crops, clouds off the sea |
 | Wednesday · Smoke on the Hill | The Whisperwood catches fire and the wind carries it toward the village; no house may burn |
 | Thursday · Fair Weather | A fair on the square that must stay dry, and laundry lines to keep dry too |
-| Friday · Thunderheads | Build a thunderhead and hold it over a rod so the rod catches its lightning and lights the lighthouse |
+| Friday · Thunderheads | Build a thunderhead and hold it over a rod so the rod catches its lightning and lights the lighthouse. A bolt marks each of the three rods and lights up while a thunderhead is in reach |
 | Saturday · The Cannery | Smog from the chimney cannot be gathered, only gusted apart or blown out to sea; mixed into a cloud it rains sour |
 | Sunday · The Rain Festival | The driest day. The evening festival wants rain on the square; fill the barrel and the Great Rain comes |
 
@@ -202,6 +203,7 @@ node tools/shot.mjs title                                   # boot and screensho
 node tools/shot.mjs tools/sc-firstrun.mjs --notest=1        # first run: real mouse clicks through the tutorial
 node tools/shot.mjs tools/sc-gather.mjs                     # real mouse: gather, fast drags, let go to rain, throw
 node tools/shot.mjs tools/sc-tools.mjs                      # shop purchases, the four tools, the Breezling, the payout
+node tools/shot.mjs tools/sc-rods.mjs                       # lightning rod markers, thunderhead in reach, Friday's intro (--lang=zh for Chinese)
 node tools/shot.mjs tools/sc-alldays.mjs                    # run all seven days and check for errors
 node tools/shot.mjs tools/sc-bot.mjs --runs=3 --skills=1,0.5,0.25   # the autopilot plays every day and reports pass rates and stars
 node tools/shot.mjs tools/sc-checks.mjs                     # sounds, frame time, progress unlocking

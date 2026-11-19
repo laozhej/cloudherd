@@ -371,11 +371,17 @@ export function createProps(scene) {
       beamAngle += dt * 0.9;
       stat.beam.rotation.y = beamAngle;
       stat.beamMat.uniforms.uOn.value = beamOn;
-      for (const tip of stat.tips) {
+      // rod tips: plain copper; on rod days (tip.live, set by game.js) a slow amber beacon, a blue-white
+      // crackle while a thunderhead is in reach (tip.near), and a white-hot flash after each catch (tip.glow)
+      stat.tips.forEach((tip, i) => {
         tip.glow = damp(tip.glow, 0, 1.5, dt);
+        tip.charge = damp(tip.charge || 0, tip.near ? 1 : 0, 6, dt);
+        const beacon = tip.live ? 0.5 + 0.5 * Math.sin(t * 2.4 + i * 2.1) : 0;
+        const crackle = tip.charge * (0.65 + 0.35 * Math.sin(t * 31 + i * 1.7));
         const c = tip.mesh.material.color;
-        c.setRGB(0.78 + tip.glow * 0.6, 0.48 + tip.glow * 0.7, 0.23 + tip.glow * 1.0);
-      }
+        c.setRGB(0.78 + tip.glow * 0.6 + beacon * 0.8 + crackle * 0.6, 0.48 + tip.glow * 0.7 + beacon * 0.62 + crackle * 0.9, 0.23 + tip.glow * 1.0 + beacon * 0.22 + crackle * 1.6);
+        tip.mesh.scale.setScalar(tip.live ? 1.35 + beacon * 0.15 + crackle * 0.25 : 1);
+      });
     },
   };
 }

@@ -106,6 +106,15 @@ svg { display: block; }
 .zone .bar i { display: block; height: 100%; border-radius: 7px; background: var(--leaf); transition: width .3s; }
 .zone.low .bar i { background: var(--rose); }
 .zone.rain .bar i { background: var(--sky); }
+/* lightning rod markers: a bolt pin over each rod, charged while a thunderhead is in reach */
+.rodmk { position: relative; width: 28px; height: 28px; margin: -38px 0 0 -14px; border-radius: 50%; display: grid; place-items: center; background: var(--paper); box-shadow: 0 0 0 2.5px var(--sun), var(--shadow); animation: rodbob 2.4s ease-in-out infinite; transition: background .2s, scale .15s; }
+.rodmk::after { content: ''; position: absolute; left: 50%; top: 100%; margin: 1px 0 0 -5px; border: 5px solid transparent; border-bottom: 0; border-top: 7px solid var(--sun); }
+.rodmk svg { width: 17px; height: 17px; }
+.rodmk.near { background: var(--sun); animation: rodbob 2.4s ease-in-out infinite, rodcharge .55s ease-out infinite; }
+.rodmk.near svg path { fill: #fff; stroke: var(--sun-d); }
+.rodmk.hit { scale: 1.35; }
+@keyframes rodbob { 50% { translate: 0 -3px; } }
+@keyframes rodcharge { 0% { box-shadow: 0 0 0 2.5px #fff, 0 0 0 2.5px rgba(255, 180, 59, .75), var(--shadow); } 100% { box-shadow: 0 0 0 2.5px #fff, 0 0 0 13px rgba(255, 180, 59, 0), var(--shadow); } }
 
 .pop { position: absolute; left: 0; top: 0; font-weight: 900; font-size: 20px; color: #fff; white-space: nowrap; pointer-events: none;
   text-shadow: 0 2px 0 rgba(28, 52, 82, .45), 0 0 12px rgba(28, 52, 82, .25); animation: popup 1.4s ease-out forwards; }
