@@ -11,7 +11,7 @@ export const G = {
   timeScale: 1,
   pace: 1,               // < 1 while the tutorial is teaching: the clock, soil drying, crop growth and wilting all slow down
   test: false,
-  settings: { volume: 0.8, music: 0.7, quality: 'high', lang: 'en', tilt: true, relaxed: false },
+  settings: { volume: 0.8, music: 0.7, ambience: 0.6, quality: 'high', lang: 'en', tilt: true, relaxed: false, swapButtons: false, toggleGather: false },
   progress: { unlocked: 1, stars: [0, 0, 0, 0, 0, 0, 0], best: [0, 0, 0, 0, 0, 0, 0], free: false },
   dayT: 0.3,             // 0..1 progress from sunrise to sunset
   day: null,             // the active day definition (levels.js)

@@ -34,7 +34,7 @@ export function createBot() {
     const S = G.sprite, C = G.clouds;
     const ap = S.autopilot || (S.autopilot = { tx: S.x, tz: S.z, draw: false, gust: false });
     // a less skilled pilot flies slower, hesitates, and takes breaks
-    S.maxSpeed = 30 * (0.55 + 0.45 * B.skill);
+    S.maxSpeed = 90 * (0.45 + 0.55 * B.skill);
     B.think -= dt;
     if (B.wait > 0) { B.wait -= dt; ap.draw = false; return; }
     if (B.skill < 1 && Math.random() < dt * 0.12 * (1 - B.skill)) { B.wait = 1 + Math.random() * 2.5 * (1 - B.skill); return; }
@@ -61,7 +61,7 @@ export function createBot() {
     }
     // the cloud we are carrying: water, close to us
     let carry = null;
-    for (const c of C.list) if (c.kind !== 'smog' && near(c, S, 4.5) && (!carry || c.mass > carry.mass)) carry = c;
+    for (const c of C.list) if (c.holder === S && (!carry || c.mass > carry.mass)) carry = c;
     if (B.phase === 'gather') {
       if (carry && carry.mass >= T.want) { B.phase = 'deliver'; return; }
       // next cloud to fetch: cheap to reach and not far off the way to the job
@@ -72,14 +72,17 @@ export function createBot() {
         const d = Math.hypot(c.x - S.x, c.z - S.z) + 0.6 * Math.hypot(c.x - T.x, c.z - T.z) - c.mass * 2;
         if (d < bs) { bs = d; best = c; }
       }
-      if (!best) { if (carry) B.phase = 'deliver'; else { ap.draw = false; ap.tx = T.x; ap.tz = T.z; } return; }
+      // nothing left to fetch: deliver what we have, except to a rod, which needs a real thunderhead
+      if (!best) { if (carry && T.kind !== 'rod') B.phase = 'deliver'; else { ap.draw = !!carry; ap.tx = T.x; ap.tz = T.z; } return; }
       const d = Math.hypot(best.x - S.x, best.z - S.z);
       ap.tx = best.x; ap.tz = best.z;
       // do not grab a cloud that is busy raining where we left it
       const rainingNear = C.list.some((c) => c.state === 'rain' && Math.hypot(c.x - S.x, c.z - S.z) < 11 + c.R);
-      ap.draw = carry ? true : d < 14 && !rainingNear;
+      ap.draw = carry ? true : d < S.capR + 2 && !rainingNear;
     } else {
       if (!carry) { B.phase = 'gather'; return; }
+      // the job changed under us (a rod wants far more than a field): go back to gathering
+      if (T.kind === 'rod' && carry.mass < T.want) { B.phase = 'gather'; return; }
       ap.draw = true;
       ap.tx = T.x; ap.tz = T.z;
       if (!T.ox) { const j = (1 - B.skill) * 6; T.ox = (Math.random() - 0.5) * j; T.oz = (Math.random() - 0.5) * j; }
@@ -97,6 +100,6 @@ export function createBot() {
   };
   function rectDistAny(c) { let m = 99; for (const f of G.crops.fields) if (f.active) m = Math.min(m, rectDist(c.x, c.z, f.def)); return m; }
   B.start = (skill = 1) => { B.on = true; B.skill = skill; B.task = null; B.phase = 'gather'; G.sprite.autopilot = { tx: G.sprite.x, tz: G.sprite.z, draw: false, gust: false }; };
-  B.stop = () => { B.on = false; G.sprite.autopilot = null; G.sprite.maxSpeed = 30; };
+  B.stop = () => { B.on = false; G.sprite.autopilot = null; G.sprite.maxSpeed = 90; };
   return B;
 }

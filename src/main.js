@@ -18,6 +18,9 @@ import { createGame } from './game.js';
 import { createHud } from './hud.js';
 import { createAudio } from './audio.js';
 import { createBot } from './bot.js';
+import { createTools } from './tools.js';
+import { createHelper } from './helper.js';
+import { freshProfile, buy, shopItem } from './profile.js';
 import { DAYS } from './levels.js';
 import { t, setLang, detectLang } from './i18n.js';
 import { damp, clamp, lerp } from './util.js';
@@ -33,7 +36,10 @@ async function boot() {
   // settings and progress
   try { Object.assign(G.settings, JSON.parse(localStorage.getItem('cloudherd.settings') || '{}')); } catch (e) { /* private mode */ }
   try { const p = JSON.parse(localStorage.getItem('cloudherd.progress') || 'null'); if (p && Array.isArray(p.stars)) Object.assign(G.progress, p); } catch (e) { /* ignore */ }
-  if (G.test) { G.progress = { unlocked: 7, stars: [0, 0, 0, 0, 0, 0, 0], best: [0, 0, 0, 0, 0, 0, 0] }; }
+  G.profile = freshProfile();
+  try { const p = JSON.parse(localStorage.getItem('cloudherd.profile') || 'null'); if (p && p.v === 1) Object.assign(G.profile, p, { owned: { ...(p.owned || {}) } }); } catch (e) { /* ignore */ }
+  if (G.test) { G.progress = { unlocked: 7, stars: [0, 0, 0, 0, 0, 0, 0], best: [0, 0, 0, 0, 0, 0, 0] }; G.profile = freshProfile(); }
+  G.saveProfile = () => { if (G.test) return; try { localStorage.setItem('cloudherd.profile', JSON.stringify(G.profile)); } catch (e) { /* ignore */ } };
   if (!QUALITY[G.settings.quality]) G.settings.quality = 'high';
   if (params.get('q')) G.settings.quality = params.get('q');
   G.settings.lang = setLang(params.get('lang') || G.settings.lang || detectLang());
@@ -68,6 +74,9 @@ async function boot() {
   G.fx = createFx(scene);
   G.weather = createWeather(scene, camera);
   G.sprite = createSprite(scene, camera);
+  G.tools = createTools(scene);
+  G.helper = createHelper(scene);
+  G.clouds.holders = [G.sprite, G.helper];
   G.village = createVillage(scene);
   G.input = createInput(canvas);
   G.audio = createAudio();
@@ -87,12 +96,15 @@ async function boot() {
   addEventListener('pointerdown', unlockAudio, { capture: true });
   addEventListener('keydown', unlockAudio, { capture: true });
 
+  const putAway = () => { G.tools.clear(); G.helper.setup(false); };
   const toTitle = () => {
+    G.game.bank(); putAway();
     G.hud.clearFx(); G.game.attract(); setMode('title'); G.hud.showTitle();
     G.sprite.active = true; G.sprite.autopilot = { tx: 0, tz: 0, draw: false, gust: false };
   };
-  const toWeek = () => { if (G.mode !== 'title' && G.mode !== 'week') { G.game.attract(); G.sprite.active = true; G.sprite.autopilot = { tx: 0, tz: 0 }; } setMode('week'); G.hud.showWeek(); };
+  const toWeek = () => { G.game.bank(); if (G.mode !== 'title' && G.mode !== 'week') { putAway(); G.game.attract(); G.sprite.active = true; G.sprite.autopilot = { tx: 0, tz: 0 }; } setMode('week'); G.hud.showWeek(); };
   const toIntro = (idx) => {
+    G.game.bank(); putAway();
     introIdx = idx;
     G.hud.clearFx();
     G.sprite.autopilot = null;
@@ -121,6 +133,13 @@ async function boot() {
   G.hud.on.retry = () => toIntro(introIdx);
   G.hud.on.next = () => toIntro(Math.min(DAYS.length - 1, introIdx + 1));
   G.hud.on.quit = () => (introIdx === 'free' ? toTitle() : toWeek());
+  let shopFrom = 'week';
+  G.hud.on.shop = (from) => { shopFrom = typeof from === 'string' ? from : 'week'; if (G.mode !== 'week' && G.mode !== 'title') toWeek(); G.profile.shopSeen = true; G.saveProfile(); G.hud.showShop(); };
+  G.hud.on.buy = (id) => { if (buy(id)) { G.audio.buy(); G.hud.toast(G.hud.shopName(id), 'good'); } G.hud.showShop(); };
+  G.hud.on.shopBack = () => (shopFrom === 'title' ? G.hud.showTitle() : G.hud.showWeek());
+  G.hud.on.gather = () => { G.input.touchGather = !G.input.touchGather; };
+  G.hud.on.gustBtn = () => { G.input.gustQueued = true; };
+  G.hud.on.tool = (id) => G.tools.use(id);
   G.hud.on.settings = (from) => { if (typeof from === 'string' && from) { settingsFrom = from; G.hud.showSettings(from); return; } };
   G.hud.on.lang = (l) => { G.settings.lang = setLang(l); document.documentElement.lang = l === 'zh' ? 'zh-CN' : 'en'; saveSettings(); rebuildHud(); G.hud.showTitle(); };
   G.hud.on.set = (arg) => {
@@ -128,12 +147,13 @@ async function boot() {
     G.settings[k] = v === 'true' ? true : v === 'false' ? false : v;
     if (k === 'quality' || k === 'tilt') post.apply();
     if (k === 'lang') { setLang(v); document.documentElement.lang = v === 'zh' ? 'zh-CN' : 'en'; rebuildHud(); }
+    if (k === 'swapButtons') rebuildHud();
     saveSettings(); G.hud.showSettings(settingsFrom);
   };
   G.hud.on.settingsDone = (from) => { saveSettings(); if (from === 'pause') G.hud.showPause(); else G.hud.showTitle(); };
   // volume sliders report through on.settings with the key name
   const settingsHook = G.hud.on.settings;
-  G.hud.on.settings = (k) => { if (k === 'volume' || k === 'music') { G.audio.setVolume(); saveSettings(); return; } settingsHook(k); };
+  G.hud.on.settings = (k) => { if (k === 'volume' || k === 'music' || k === 'ambience') { G.audio.setVolume(); saveSettings(); return; } settingsHook(k); };
   function rebuildHud() {
     // text is baked into the HUD markup, so rebuild it on a language change
     const on = G.hud.on;
@@ -144,6 +164,7 @@ async function boot() {
     G.game.retip();
   }
 
+  G.input.onMove = (x, y) => G.hud.reticle(x, y);
   G.input.onKey = (code) => {
     if (code === 'Escape' || code === 'KeyP') {
       if (G.mode === 'playing') pause();
@@ -153,6 +174,7 @@ async function boot() {
     if (code === 'KeyF' && !G.hud.panelOpen) { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen?.().catch(() => {}); }
   };
   document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
+  addEventListener('pagehide', () => G.game.bank());
 
   // ---------------------------------------------------------------- prewarm every shader behind the boot screen
   await stage('boot.4', 85);
@@ -162,11 +184,14 @@ async function boot() {
   G.fx.puff(0, 10, 0, 3); G.fx.sparkle(0, 10, 0, 3); G.fx.flame(0, 5, 0); G.fx.streak(0, 10, 0, 1, 0);
   G.weather.strike(0, 0, 2, 2); G.weather.rainbow(0, 0, 1);
   G.village.fair.visible = G.village.laundryGroup.visible = G.village.gauge.visible = true;
+  for (const p of G.tools.pegs) p.g.visible = true;
+  G.helper.setup(false);
   G.sky.update(0.3, camera);
   renderer.compile(scene, camera);
   post.render(0.016);
   G.weather.clear(); G.fx.clear();
   G.village.fair.visible = G.village.laundryGroup.visible = G.village.gauge.visible = false;
+  for (const p of G.tools.pegs) p.g.visible = false;
   await stage('boot.4', 100);
 
   toTitle();
@@ -190,8 +215,8 @@ async function boot() {
       const a = G.real * 0.05;
       camPos.set(Math.sin(a) * 16, 74, 100 + Math.cos(a * 0.7) * 6); look.set(Math.sin(a) * 4, 0, 2);
     } else {
-      camPos.set(CAM_PLAY.pos.x + S.x * 0.06, CAM_PLAY.pos.y, CAM_PLAY.pos.z + S.z * 0.05);
-      look.set(CAM_PLAY.look.x + S.x * 0.06, 0, CAM_PLAY.look.z + S.z * 0.05);
+      // fixed while playing: a drifting camera moves the ground under a still pointer and feels like lag
+      camPos.copy(CAM_PLAY.pos); look.copy(CAM_PLAY.look);
     }
     const k = 1 - Math.exp(-rdt * 2.2);
     camera.position.lerp(camPos, k);
@@ -225,6 +250,8 @@ async function boot() {
     }
     G.bot.update(dt);
     S.update(dt, G.mode === 'playing' && !G.bot.on ? G.input : null);
+    G.helper.update(dt);
+    G.tools.update(dt);
     // the day only moves on while it is being played; the intro card and the results hold it still
     const live = G.mode === 'playing' || G.mode === 'dusk', backdrop = G.mode === 'title' || G.mode === 'week';
     G.clouds.frozen = G.mode === 'intro';
@@ -247,6 +274,8 @@ async function boot() {
     G, THREE,
     startDay: (i) => { toIntro(i); startDay(); },
     toWeek, toTitle, pause, resume,
+    setProfile: (p) => { Object.assign(G.profile, p); G.mods = null; },
+    useTool: (id) => G.tools.use(id),
     skip: (sec) => { for (let i = 0; i < sec * 30; i++) step(1 / 30); },
     // play a whole day with the bot at full speed; returns the result
     botDay: (i, skill = 1) => {

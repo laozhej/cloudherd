@@ -79,7 +79,9 @@ export function createSprite(scene, camera) {
 
   const S = {
     x: 0, z: 10, vx: 0, vz: 0, fx: 0, fz: -1, active: false, drawing: false, gustCD: 0, gustT: 0,
-    tx: 0, tz: 10, speed: 0, root, ring, maxSpeed: 30, squish: 0, autopilot: null,
+    tx: 0, tz: 10, speed: 0, root, ring, maxSpeed: 90, squish: 0, autopilot: null,
+    // holder interface read by clouds.js: capture radius, leash, did gathering start this frame
+    capR: 11, leash: 24, drawStart: false,
     reset(x = 0, z = 10) {
       S.x = S.tx = x; S.z = S.tz = z; S.vx = S.vz = 0; S.gustCD = 0;
       for (const p of trail) p.set(x, SPRITE_Y, z);
@@ -104,17 +106,22 @@ export function createSprite(scene, camera) {
           const t = S.pointerTarget(I.x, I.y);
           if (t) { S.tx = t.x; S.tz = t.z; }
         }
-        draw = I.drawHeld(); gust = I.gustNow();
+        draw = I.gatherHeld(); gust = I.gustNow();
       }
       // keep the target inside the play area
       const tr = Math.hypot(S.tx, S.tz);
       if (tr > 70) { S.tx *= 70 / tr; S.tz *= 70 / tr; }
+      const M = G.mods || {};
+      const was = S.drawing;
       S.drawing = S.active && draw;
-      const max = S.maxSpeed * (S.drawing ? 0.62 : 1);
-      let dvx = (S.tx - S.x) * 5.5, dvz = (S.tz - S.z) * 5.5;
+      S.drawStart = S.drawing && !was;
+      S.capR = 11 * (M.reach || 1); S.leash = S.capR * 2.2;
+      // follow the pointer tightly: a stiff, well damped chase so the spirit sits under the cursor
+      const max = S.maxSpeed * (M.speed || 1) * (S.drawing ? (M.carry || 0.82) : 1);
+      let dvx = (S.tx - S.x) * 14, dvz = (S.tz - S.z) * 14;
       const dl = Math.hypot(dvx, dvz);
       if (dl > max) { dvx *= max / dl; dvz *= max / dl; }
-      S.vx = damp(S.vx, dvx, 9, dt); S.vz = damp(S.vz, dvz, 9, dt);
+      S.vx = damp(S.vx, dvx, 26, dt); S.vz = damp(S.vz, dvz, 26, dt);
       S.x += S.vx * dt; S.z += S.vz * dt;
       S.speed = Math.hypot(S.vx, S.vz);
       if (S.speed > 1.5) { S.fx = damp(S.fx, S.vx / S.speed, 10, dt); S.fz = damp(S.fz, S.vz / S.speed, 10, dt); const fl = Math.hypot(S.fx, S.fz) || 1; S.fx /= fl; S.fz /= fl; }
@@ -126,7 +133,7 @@ export function createSprite(scene, camera) {
         const ddx = S.tx - S.x, ddz = S.tz - S.z, dd = Math.hypot(ddx, ddz);
         if (dd > 2.5) { gx = ddx / dd; gz = ddz / dd; }
         S.fx = gx; S.fz = gz;
-        S.gustCD = 0.55; S.gustT = 0.35; S.squish = 1;
+        S.gustCD = S.gustCDMax = M.gustCD || 0.5; S.gustT = 0.35; S.squish = 1;
         const hits = G.clouds.gust(S.x, S.z, gx, gz);
         G.props?.push(S.x, S.z, gx * 14, gz * 14, 20);
         S.onGust?.(gx, gz, hits);
@@ -161,7 +168,7 @@ export function createSprite(scene, camera) {
         ch.quaternion.copy(camera.quaternion);
       }
       // ring
-      const want = S.drawing ? 11.5 : 4.2;
+      const want = S.drawing ? S.capR : 4.2;
       ring.scale.setScalar(damp(ring.scale.x, want, 8, dt));
       ring.position.set(S.x, CLOUD_Y - 0.4, S.z);
       ringMat.uniforms.uMode.value = damp(ringMat.uniforms.uMode.value, S.drawing ? 1 : 0, 8, dt);

@@ -7,6 +7,7 @@ import { clamp, rand, lerp, damp, smoothstep, rectDist, TAU } from './util.js';
 import { RAIN_MASS, STORM_MASS, GRID } from './consts.js';
 import { CROPS } from './crops.js';
 import { t } from './i18n.js';
+import { computeMods, addXp } from './profile.js';
 
 const deg = (d) => (d * Math.PI) / 180;
 
@@ -15,7 +16,7 @@ export function createGame() {
     day: null, idx: -1, state: 'idle', score: 0, harvests: 0, housesLost: 0, rodHits: 0, smogCleared: 0,
     fairJoy: 1, gauge: 0, gaugeDone: false, great: 0, lit: false, tut: -1, tutT: 0, tutDist: 0, tutPush: 0,
     spawn: {}, fireT: 0, smogT: 0, windPhase: 0, ended: false, dusk: 0, stats: null, fairWasOn: false, festWasOn: false,
-    lastToast: {}, dousePending: 0, douseT: 0,
+    lastToast: {}, dousePending: 0, douseT: 0, dew: 0, xp: 0, banked: true, bounties: [], goldT: 0, cropHarvests: {},
   };
   const S = () => G.sprite;
 
@@ -24,6 +25,17 @@ export function createGame() {
     if (cooldown && R.lastToast[key] && now - R.lastToast[key] < cooldown) return;
     R.lastToast[key] = now;
     G.hud?.toast(t(key, vars), kind);
+  };
+  // dewdrops (the currency) and experience, banked into the profile when the day ends
+  const earn = (dew, xp, x, y, z) => {
+    // only a day that is being played earns anything (the title screen's demo spirit catches rainbows too)
+    if (R.state !== 'playing' && R.state !== 'dusk') return;
+    const M = G.mods || {}, k = R.day?.free ? 0.5 : 1;
+    R.dewAcc += dew * (M.dew || 1) * k; R.xpAcc += xp * k;
+    const d = Math.floor(R.dewAcc + 1e-6), e = Math.floor(R.xpAcc + 1e-6);
+    R.dewAcc -= d; R.xpAcc -= e;
+    R.dew += d; R.xp += e;
+    if (d > 0 && x !== undefined) G.hud?.pop('+' + d, x, y, z, 'dew');
   };
   const addScore = (n, x, y, z, cls) => {
     if (R.day?.free) n = Math.max(0, n);
@@ -38,18 +50,26 @@ export function createGame() {
       A?.merge(a.mass);
       FX.puff((a.x + b.x) / 2, 12, (a.z + b.z) / 2, 6, [1, 1, 1], 1.5, 1.3);
       R.stats.merges++;
-      if (G.sprite.drawing) R.stats.drawMerges++;
+      if (G.sprite.drawing || a.holder || b.holder) R.stats.drawMerges++;
       R.stats.maxCloud = Math.max(R.stats.maxCloud, a.mass);
       if (a.kind === 'acid' && wasKind !== 'acid') toast('toast.acid', null, 'warn', 6);
       if (a.mass >= STORM_MASS && a.mass - b.mass < STORM_MASS) { toast('toast.storm', null, 'warn', 20); A?.rumble(); }
     };
     C.onSwell = () => A?.swell();
-    C.onRainStart = (c) => { if (!(c.ep > 0)) { c.fieldWater = 0; c.ep = 0; } A?.rainStart(); };
+    let grabT = 0;
+    C.onGrab = (c, h) => { if (h === G.sprite && G.time - grabT > 0.12) { grabT = G.time; A?.grab(); } };
+    if (G.tools) G.tools.onUse = (id, n) => { if (id === 'whistle') { R.stats.whistled += n; if (!n) toast('toast.noclouds', null, 'warn', 2); } };
+    C.onRainStart = (c) => { if (!(c.ep > 0)) { c.fieldWater = 0; c.ep = 0; c.goldPay = 0; if (c.mass >= 5) R.stats.bigRains++; } A?.rainStart(); };
     C.onRain = (c, w, footR, overWater) => {
       c.ep = (c.ep || 0) + w;
       if (overWater) return;
       if (c.kind === 'acid') G.crops.acid(c.x, c.z, footR, w);
-      for (const f of G.crops.fields) if (f.active && rectDist(c.x, c.z, f.def) < footR * 0.5) { c.fieldWater += w; R.stats.fieldWater += w; break; }
+      for (const f of G.crops.fields) if (f.active && rectDist(c.x, c.z, f.def) < footR * 0.5) {
+        c.fieldWater += w; R.stats.fieldWater += w;
+        // golden rain: crops shoot up, and it pays
+        if (c.kind === 'gold') { f.golden = 2.5; R.stats.goldWater += w; c.goldPay = (c.goldPay || 0) + w; if (c.goldPay > 0.4) { c.goldPay -= 0.4; earn(1, 1, f.def.x, f.y + 4, f.def.z); } }
+        break;
+      }
       const day = R.day, Sq = LAYOUT.square;
       const dsq = Math.hypot(c.x - Sq.x, c.z - Sq.z);
       if (day.fair && fairActive() && dsq < Sq.r + footR * 0.7) {
@@ -62,9 +82,11 @@ export function createGame() {
     };
     C.onRainEnd = (c) => {
       const ep = c.ep || 0;
-      if (ep > 1.2 && c.fieldWater / ep > 0.5) { R.stats.bullseyes++; addScore(40, c.x, 14, c.z, 'bonus'); toast('toast.bullseye', null, 'good', 4); }
+      if (ep > 1.2 && c.fieldWater / ep > 0.5) { R.stats.bullseyes++; addScore(40, c.x, 14, c.z, 'bonus'); earn(2, 5, c.x, 16, c.z); toast('toast.bullseye', null, 'good', 4); }
+      if (c.kind === 'gold' && c.fieldWater > 0.5) R.stats.goldRains++;
       c.ep = 0; c.fieldWater = 0;
-      if (ep > 1.4 && G.dayT > 0.04 && G.dayT < 0.94 && c.kind === 'water' && Math.random() < 0.6) G.weather.rainbow(c.x, c.z, clamp(c.R / 4.4, 0.8, 1.5));
+      const chance = c.kind === 'gold' ? 1 : (G.mods?.rainbowChance ?? 0.6);
+      if (ep > 1.2 && G.dayT > 0.04 && G.dayT < 0.94 && (c.kind === 'water' || c.kind === 'gold') && Math.random() < chance) G.weather.rainbow(c.x, c.z, clamp(c.R / 4.4, 0.8, 1.5));
     };
     C.onStrike = (c) => {
       let tx, tz, rod = null;
@@ -79,7 +101,7 @@ export function createGame() {
       if (rod) {
         rod.glow = 1; R.rodHits++;
         G.fx.sparkle(rod.x, rod.y, rod.z, 16, [0.7, 0.85, 1.4], 2);
-        addScore(80, rod.x, rod.y + 1, rod.z, 'bonus');
+        addScore(80, rod.x, rod.y + 1, rod.z, 'bonus'); earn(3, 6);
         toast('toast.rod', null, 'good', 2);
         const need = R.day.goals.find((g) => g.type === 'rods');
         if (need && R.rodHits >= need.n && !R.lit) { R.lit = true; G.props.lighthouseOn = true; toast('toast.lit', null, 'good'); A?.fanfare(); addScore(300); }
@@ -89,11 +111,13 @@ export function createGame() {
       }
     };
     C.onSplash = (x, y, z, water) => G.fx.splash(x, y, z, water);
-    C.onSmogCleared = (c) => { R.smogCleared++; addScore(40, c.x, 13, c.z, 'bonus'); G.fx.puff(c.x, 12, c.z, 8, [0.55, 0.5, 0.55], 2, 1.5); A?.poof(); };
+    C.onSmogCleared = (c, byGust) => { R.smogCleared++; if (byGust) R.stats.smogGusted++; addScore(40, c.x, 13, c.z, 'bonus'); earn(2, 4, c.x, 15, c.z); G.fx.puff(c.x, 12, c.z, 8, [0.55, 0.5, 0.55], 2, 1.5); A?.poof(); };
     G.crops.onHarvest = (f, T) => {
       const pts = Math.round(T.score * (0.6 + 0.4 * f.health) / 5) * 5;
       R.harvests++; R.stats.harvests++;
+      R.cropHarvests[f.type] = (R.cropHarvests[f.type] || 0) + 1;
       addScore(pts, f.def.x, f.y + 3, f.def.z, 'gold');
+      earn((T.dew || 6) * (0.6 + 0.4 * f.health), 10, f.def.x + 2.5, f.y + 4.5, f.def.z);
       G.fx.sparkle(f.def.x, f.y + 1, f.def.z, 26, [1.3, 1.0, 0.4], Math.max(f.def.w, f.def.d));
       if (f.type === 'lavender') G.fx.petals(f.def.x, f.y + 1, f.def.z, 14, [0.75, 0.6, 1]);
       G.village.cheer(f.def.x, f.def.z);
@@ -101,13 +125,14 @@ export function createGame() {
     };
     G.crops.onWither = (f) => { R.stats.withered++; addScore(R.day.free ? 0 : -80, f.def.x, f.y + 3, f.def.z); toast('toast.wither', { crop: t('crop.' + f.type) }, 'bad'); A?.sad(); };
     G.fire.onHouseFire = (h) => { toast('toast.house', null, 'bad', 4); A?.bell(); };
-    G.fire.onHouseSaved = (h) => { addScore(100, h.x, h.y + 4, h.z, 'bonus'); toast('toast.saved', null, 'good'); A?.chime(); };
+    G.fire.onHouseSaved = (h) => { addScore(100, h.x, h.y + 4, h.z, 'bonus'); earn(8, 12, h.x, h.y + 6, h.z); toast('toast.saved', null, 'good'); A?.chime(); };
     G.fire.onHouseLost = (h) => { R.housesLost++; addScore(R.day.free ? 0 : -250, h.x, h.y + 4, h.z); toast('toast.lost', null, 'bad'); G.village.houseLost(h); A?.sad(); };
     G.fire.onDoused = (n) => { R.dousePending += n; R.stats.doused += n; };
-    G.weather.onRainbow = (r) => { R.stats.rainbows++; addScore(60, r.x, 12, r.z, 'rainbow'); G.fx.sparkle(r.x, 10, r.z, 30, [1.2, 1.1, 1.3], 6); toast('toast.rainbow', null, 'good'); A?.rainbow(); };
+    G.weather.onRainbow = (r) => { R.stats.rainbows++; addScore(60, r.x, 12, r.z, 'rainbow'); earn(5 * (G.mods?.rainbowDew || 1), 8, r.x, 15, r.z); G.fx.sparkle(r.x, 10, r.z, 30, [1.2, 1.1, 1.3], 6); toast('toast.rainbow', null, 'good'); A?.rainbow(); };
     G.sprite.onGust = (gx, gz, hits) => {
       A?.gust();
       R.stats.gusts++;
+      R.stats.throws += G.clouds.lastThrown || 0;
       const s = S();
       for (let i = 0; i < 14; i++) {
         const a = Math.atan2(gz, gx) + rand(-0.5, 0.5), d = rand(0.5, 4);
@@ -148,7 +173,11 @@ export function createGame() {
     R.day = day; R.idx = idx; G.day = day;
     R.score = 0; R.harvests = 0; R.housesLost = 0; R.rodHits = 0; R.smogCleared = 0; R.fairJoy = 1; R.gauge = 0; R.gaugeDone = false; R.great = 0; R.lit = false;
     R.ended = false; R.dusk = 0; R.fairWasOn = false; R.festWasOn = false; R.lastToast = {}; R.dousePending = 0; R.greatBow = false; R.tut = -1;
-    R.stats = { merges: 0, drawMerges: 0, harvests: 0, fieldWater: 0, bullseyes: 0, rainbows: 0, doused: 0, withered: 0, gusts: 0, maxCloud: 0, strikeFires: 0 };
+    R.stats = { merges: 0, drawMerges: 0, harvests: 0, fieldWater: 0, bullseyes: 0, rainbows: 0, doused: 0, withered: 0, gusts: 0, maxCloud: 0, strikeFires: 0, bigRains: 0, goldRains: 0, goldWater: 0, throws: 0, smogGusted: 0, whistled: 0 };
+    R.dew = 0; R.xp = 0; R.dewAcc = 0; R.xpAcc = 0; R.banked = false; R.cropHarvests = {};
+    G.mods = computeMods();
+    R.bounties = pickBounties(day, idx);
+    R.goldT = day.gold === 0 ? 1e9 : rand(32, 50);
     R.windPhase = Math.random() * 10;
     G.dayT = 0;
     G.clouds.clear(); G.weather.clear(); G.fx.clear();
@@ -166,7 +195,7 @@ export function createGame() {
     G.crops.setup(plan);
     for (const f of G.crops.fields) {
       f.growth = f.gv = day.startGrowth * (0.7 + Math.random() * 0.6);
-      const m0 = day.fieldStart ?? 0.55;
+      const m0 = day.fieldStart ?? 0.5;
       for (const k of f.cells) G.climate.moist[k] = Math.max(G.climate.moist[k], m0 + (Math.random() - 0.5) * 0.08);
     }
     G.village.setup(day);
@@ -180,6 +209,15 @@ export function createGame() {
   }
 
   function windUpdate(dt, snap) {
+    // the Weather Vane overrides the day's wind while it lasts
+    const v = G.tools?.windOverride();
+    if (v && R.state === 'playing') {
+      G.wind.x = damp(G.wind.x, v.x, 4, dt); G.wind.z = damp(G.wind.z, v.z, 4, dt);
+      const l = Math.hypot(G.wind.x, G.wind.z) || 1; G.wind.x /= l; G.wind.z /= l;
+      G.wind.angle = Math.atan2(G.wind.z, G.wind.x);
+      G.wind.speed = damp(G.wind.speed, 3.2, 3, dt);
+      return;
+    }
     const W = R.day.wind;
     R.windPhase += dt;
     const p = R.windPhase;
@@ -288,6 +326,18 @@ export function createGame() {
       if (day.free && G.dayT > 0.92) G.dayT = 0.08;
       tutUpdate(dt);
       spawnUpdate(dt);
+      // tool hotkeys 1-4
+      if (G.tools && !G.bot?.on) for (const sl of G.tools.slots) if (G.input.pressed.has('Digit' + sl.slot) || G.input.pressed.has('Numpad' + sl.slot)) G.tools.use(sl.id);
+      // now and then a golden cloud blows in off the sea
+      R.goldT -= dt;
+      if (R.goldT <= 0 && !R.great) {
+        R.goldT = (day.gold || 80) * rand(0.85, 1.25);
+        if (!G.clouds.list.some((c) => c.kind === 'gold') && (R.tut < 0)) {
+          const up = Math.atan2(-G.wind.z, -G.wind.x) + rand(-0.6, 0.6);
+          const c = G.clouds.spawn(Math.cos(up) * 58, Math.sin(up) * 58, 1.5, 'gold');
+          if (c) { toast('toast.gold', null, 'good'); G.audio?.chime(0.7); }
+        }
+      }
       // fair and festival bookkeeping
       if (day.fair) {
         const on = fairActive();
@@ -305,6 +355,7 @@ export function createGame() {
         R.douseT = 0.6;
         const c = G.fire.clusters[0];
         addScore(R.dousePending * 6, c ? c.x : undefined, 6, c ? c.z : undefined, 'bonus');
+        earn(R.dousePending / 6, R.dousePending / 3);
         R.dousePending = 0;
       }
       if (G.dayT >= 1 && !day.free) { G.dayT = 1; R.state = 'dusk'; R.dusk = 0; S().active = false; G.audio?.dusk(); }
@@ -312,6 +363,50 @@ export function createGame() {
       R.dusk += dt;
       if (R.dusk > 2.2 && !R.ended) { R.ended = true; finish(); }
     }
+  }
+
+  // ---------------------------------------------------------------- bounties: two optional extras a day
+  const BOUNTY = {
+    rainbows: { n: 2, of: () => R.stats.rainbows, dew: 25, xp: 25 },
+    rainbow1: { n: 1, of: () => R.stats.rainbows, dew: 15, xp: 20 },
+    bulls: { n: 4, of: () => R.stats.bullseyes, dew: 20, xp: 25 },
+    big: { n: 1, of: () => R.stats.bigRains, dew: 25, xp: 30 },
+    nowilt: { n: 1, of: () => (R.stats.withered === 0 ? 1 : 0), keep: true, dew: 25, xp: 30 },
+    gold: { n: 1, of: () => R.stats.goldRains, dew: 30, xp: 30 },
+    throws: { n: 3, of: () => R.stats.throws, dew: 15, xp: 20 },
+    douse: { n: 40, of: () => R.stats.doused, dew: 25, xp: 25, needs: 'fire' },
+    smog: { n: 3, of: () => R.stats.smogGusted, dew: 20, xp: 20, needs: 'smog' },
+    crop: { n: 3, of: (b) => R.cropHarvests[b.crop] || 0, dew: 20, xp: 25 },
+  };
+  function pickBounties(day, idx) {
+    if (day.free || day.key === 'attract') return [];
+    if (idx === 0) return [{ id: 'rainbow1', crop: null }];
+    const pool = Object.keys(BOUNTY).filter((id) => id !== 'rainbow1' && (!BOUNTY[id].needs || day[BOUNTY[id].needs]) && !(id === 'gold' && day.gold === 0));
+    const crops = [...new Set(day.crops.filter(Boolean))];
+    const out = [];
+    while (out.length < 2 && pool.length) {
+      const id = pool.splice((Math.random() * pool.length) | 0, 1)[0];
+      out.push({ id, crop: id === 'crop' ? crops[(Math.random() * crops.length) | 0] : null });
+    }
+    return out;
+  }
+  function bountyStatus() {
+    return R.bounties.map((b) => {
+      // a 'keep' bounty (no withering) can still be lost until sunset, so it only ticks at the end
+      const B = BOUNTY[b.id], have = B.of(b), done = have >= B.n && (!B.keep || R.ended);
+      const vars = { n: B.n, crop: b.crop ? t('crop.' + b.crop) : '' };
+      return { id: b.id, done, failed: B.keep && have < B.n, prog: Math.min(1, have / B.n), label: t('bounty.' + (B.key || b.id), vars), count: B.keep ? '' : `${Math.min(have, B.n)}/${B.n}`, dew: B.dew, xp: B.xp };
+    });
+  }
+  // move what the day has earned into the profile (once); returns any levels gained
+  function bank() {
+    if (R.banked) return [];
+    R.banked = true;
+    const P = G.profile;
+    P.dew += R.dew; P.earned = (P.earned || 0) + R.dew;
+    const ups = addXp(R.xp);
+    G.saveProfile?.();
+    return ups;
   }
 
   function goalsStatus() {
@@ -331,7 +426,7 @@ export function createGame() {
   function finish() {
     const day = R.day;
     // fires put out in the last moments still pay
-    if (R.dousePending) { R.score += R.dousePending * 6; R.dousePending = 0; }
+    if (R.dousePending) { R.score += R.dousePending * 6; earn(R.dousePending / 6, R.dousePending / 3); R.dousePending = 0; }
     // end-of-day bonuses
     let land = 0, sum = 0;
     const C = G.climate;
@@ -344,6 +439,15 @@ export function createGame() {
     let stars = 0;
     if (pass) { stars = 1; if (R.score >= day.stars[0]) stars = 2; if (R.score >= day.stars[1]) stars = 3; }
     const P = G.progress;
+    // the end-of-day payout: stars, a first-clear bonus, and every bounty met
+    const first = R.idx >= 0 && pass && !(P.stars[R.idx] > 0);
+    const bounties = bountyStatus();
+    let bDew = 0, bXp = 0;
+    for (const b of bounties) if (b.done) { bDew += b.dew; bXp += b.xp; }
+    R.dew += stars * 10 + (first ? 30 : 0) + bDew;
+    R.xp += 20 + stars * 15 + (first ? 40 : 0) + bXp;
+    const earned = { dew: R.dew, xp: R.xp };
+    const levelUps = bank();
     let best = false;
     if (R.idx >= 0) {
       if (pass) P.unlocked = Math.max(P.unlocked, Math.min(DAYS.length, R.idx + 2));
@@ -352,11 +456,11 @@ export function createGame() {
       G.saveProgress?.();
     }
     R.state = 'results';
-    G.onDayEnd?.({ pass, stars, score: R.score, goals, green, fairBonus, best, stats: R.stats, finale: !!day.finale && pass, idx: R.idx });
+    G.onDayEnd?.({ pass, stars, score: R.score, goals, green, fairBonus, best, stats: R.stats, finale: !!day.finale && pass, idx: R.idx, earned, levelUps, bounties, first });
   }
 
   const api = {
-    R, wire, goalsStatus, fairActive,
+    R, wire, goalsStatus, fairActive, bountyStatus, bank,
     begin(idx) {
       const day = idx === 'free' ? FREE : DAYS[idx];
       setupWorld(day, idx === 'free' ? -1 : idx);
@@ -366,6 +470,8 @@ export function createGame() {
     play() {
       R.state = 'playing';
       S().active = true;
+      G.tools?.setup();
+      G.helper?.setup(true);
       R.tut = -1;
       if (R.day.tutorial && !G.test && !G.progress.stars[0]) { R.tut = -1; R.tutDist = 0; R.tutPush = 0; tutNext(); }
     },

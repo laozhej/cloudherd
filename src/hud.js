@@ -7,6 +7,7 @@ import { fmtClock, clamp } from './util.js';
 import { DAYS, FREE } from './levels.js';
 import { LAYOUT, groundAt } from './island.js';
 import { CROPS } from './crops.js';
+import { SHOP, TOOL, tierOf, buyState, xpToNext, perkAt, anyAffordable, MAX_LEVEL } from './profile.js';
 
 const DROP = 'M12 2.5c3.8 4.6 6.5 8.2 6.5 11.5A6.5 6.5 0 0 1 5.5 14c0-3.3 2.7-6.9 6.5-11.5z';
 export const ICON = {
@@ -26,6 +27,18 @@ export const ICON = {
   star: (on) => `<svg viewBox="0 0 24 24" class="${on ? 'on' : ''}"><path d="M12 2.6l2.9 5.9 6.5.9-4.7 4.6 1.1 6.5L12 17.4l-5.8 3.1 1.1-6.5L2.6 9.4l6.5-.9z" fill="${on ? '#f2b631' : '#c9cfd6'}" stroke="${on ? '#d8941a' : '#b4bcc6'}" stroke-width="1.2" stroke-linejoin="round"/></svg>`,
   lock: `<svg viewBox="0 0 24 24"><rect x="5" y="10" width="14" height="11" rx="2.5" fill="#23374d"/><path d="M8 10V7.5a4 4 0 0 1 8 0V10" stroke="#23374d" stroke-width="2.2" fill="none"/></svg>`,
   arrow: `<svg viewBox="0 0 24 24"><path d="M12 2.5 18.5 12H14v9.5h-4V12H5.5z" fill="#45a2e0"/></svg>`,
+  whistle: `<svg viewBox="0 0 24 24"><path d="M3 9.5h9.5a5 5 0 1 1-1.2 8.5L9 14.5H3z" fill="#45a2e0"/><circle cx="13.6" cy="14.2" r="2" fill="#fff"/><path d="M15 4.5c1.6-.8 3.4-.6 4.6.4M16.5 7c.8-.4 1.8-.3 2.4.2" stroke="#45a2e0" stroke-width="1.6" fill="none" stroke-linecap="round"/></svg>`,
+  peg: `<svg viewBox="0 0 24 24"><ellipse cx="12" cy="8" rx="8.5" ry="3" fill="none" stroke="#f2b631" stroke-width="2"/><path d="M12 8v13" stroke="#a77a4f" stroke-width="2.6" stroke-linecap="round"/><path d="M12 3.2l1.7 2.4L12 8l-1.7-2.4z" fill="#f2b631"/></svg>`,
+  vane: `<svg viewBox="0 0 24 24"><path d="M12 8v14" stroke="#5d5348" stroke-width="2" stroke-linecap="round"/><path d="M4 8h13" stroke="#45a2e0" stroke-width="2.2" stroke-linecap="round"/><path d="M16 4.5 21 8l-5 3.5z" fill="#45a2e0"/><path d="M3.5 5.2 6.3 8l-2.8 2.8" stroke="#45a2e0" stroke-width="2" fill="none" stroke-linejoin="round"/><circle cx="12" cy="8" r="1.9" fill="#f2b631"/></svg>`,
+  bell: `<svg viewBox="0 0 24 24"><path d="M12 3a5.5 5.5 0 0 0-5.5 5.5v4L4.5 16h15l-2-3.5v-4A5.5 5.5 0 0 0 12 3z" fill="#f2b631"/><circle cx="12" cy="17.6" r="2" fill="#d8941a"/><path d="M6 20.4l-.8 1.6M12 21.4v1.3M18 20.4l.8 1.6" stroke="#45a2e0" stroke-width="1.6" stroke-linecap="round"/></svg>`,
+  embrace: `<svg viewBox="0 0 24 24"><path d="M8 15.5a3.5 3.5 0 0 1-.4-7A5 5 0 0 1 17 8.2a3.6 3.6 0 0 1-.4 7.3z" fill="#fff" stroke="#45a2e0" stroke-width="1.4"/><path d="M3 11c0 5 3.5 8.5 9 8.5s9-3.5 9-8.5" stroke="#5aae47" stroke-width="2" fill="none" stroke-linecap="round"/></svg>`,
+  swift: `<svg viewBox="0 0 24 24"><path d="M20 3.5C12 4.5 6.5 9.5 5 19.5l2.2-1.2C8.6 13.2 12 9.4 17 7" fill="none" stroke="#45a2e0" stroke-width="2" stroke-linecap="round"/><path d="M20 3.5c-1 6-4.6 10.5-11 13" fill="none" stroke="#45a2e0" stroke-width="1.4" stroke-linecap="round" opacity=".6"/><path d="M2 9h5M1 13h4" stroke="#9fe0f5" stroke-width="1.6" stroke-linecap="round"/></svg>`,
+  lungs: `<svg viewBox="0 0 24 24"><path d="M3 9h11a3 3 0 1 0-3-3M3 14h15a3 3 0 1 1-3 3M3 19h7" stroke="#45a2e0" stroke-width="2" fill="none" stroke-linecap="round"/></svg>`,
+  roots: `<svg viewBox="0 0 24 24"><path d="M12 13c-4 0-6.5-2.8-6.5-6.5C9.5 6.5 12 9 12 13zM12 13c4 0 6.5-2.8 6.5-6.5C14.5 6.5 12 9 12 13z" fill="#5aae47"/><path d="M12 13v5m0 0-3.5 3.5M12 18l3.5 3.5M12 18v4" stroke="#a77a4f" stroke-width="1.6" stroke-linecap="round"/></svg>`,
+  prism: `<svg viewBox="0 0 24 24"><path d="M12 3 3 19h18z" fill="#e3f4ff" stroke="#45a2e0" stroke-width="1.4" stroke-linejoin="round"/><path d="M1 11l7 3" stroke="#9fb4c8" stroke-width="1.6"/><path d="M15 13l8-3" stroke="#e2574c" stroke-width="1.4"/><path d="M15 14l8-1" stroke="#f2b631" stroke-width="1.4"/><path d="M15 15l8 1" stroke="#5aae47" stroke-width="1.4"/><path d="M15 16l8 3" stroke="#8c74d8" stroke-width="1.4"/></svg>`,
+  golden: `<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="#f2b631" stroke="#d8941a" stroke-width="1.4"/><path d="M12 6.5c2.2 2.6 3.6 4.5 3.6 6.3a3.6 3.6 0 0 1-7.2 0c0-1.8 1.4-3.7 3.6-6.3z" fill="#fff8e0"/></svg>`,
+  breezling: `<svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="7" fill="#c6f7d9" stroke="#5aae47" stroke-width="1.4"/><circle cx="9.8" cy="12.4" r="1.1" fill="#23374d"/><circle cx="14.2" cy="12.4" r="1.1" fill="#23374d"/><path d="M12 6c.5-2 2-3 4-3-.3 2-1.8 3-4 3z" fill="#5aae47"/></svg>`,
+  dew: `<svg viewBox="0 0 24 24"><path d="${DROP}" fill="#2fb8d8"/><path d="M9 14.5a3 3 0 0 0 3 3" stroke="#fff" stroke-width="1.6" fill="none" stroke-linecap="round" opacity=".85"/></svg>`,
   mouseL: `<svg viewBox="0 0 20 26"><rect x="1.5" y="1.5" width="17" height="23" rx="8.5" fill="#fff" stroke="#23374d" stroke-width="1.6"/><path d="M10 1.5v9M1.5 10.5h17" stroke="#23374d" stroke-width="1.4"/><path d="M10 2.3V10H2.3A8 8 0 0 1 10 2.3z" fill="#45a2e0"/></svg>`,
   mouseR: `<svg viewBox="0 0 20 26"><rect x="1.5" y="1.5" width="17" height="23" rx="8.5" fill="#fff" stroke="#23374d" stroke-width="1.6"/><path d="M10 1.5v9M1.5 10.5h17" stroke="#23374d" stroke-width="1.4"/><path d="M10 2.3V10h7.7A8 8 0 0 0 10 2.3z" fill="#5aae47"/></svg>`,
   mouse: `<svg viewBox="0 0 20 26"><rect x="1.5" y="1.5" width="17" height="23" rx="8.5" fill="#fff" stroke="#23374d" stroke-width="1.6"/><path d="M10 1.5v9M1.5 10.5h17" stroke="#23374d" stroke-width="1.4"/><path d="M10 14v5" stroke="#23374d" stroke-width="1.6" stroke-linecap="round"/></svg>`,
@@ -42,17 +55,28 @@ export function createHud(root) {
     <div class="top card"><div class="sunarc"><svg viewBox="0 0 120 46"><path d="M8 40 A52 34 0 0 1 112 40" fill="none" stroke="rgba(35,55,77,.22)" stroke-width="2.5" stroke-linecap="round" stroke-dasharray="1 6"/><path id="h-arcfill" d="M8 40 A52 34 0 0 1 112 40" fill="none" stroke="#ffb43b" stroke-width="3" stroke-linecap="round" pathLength="100" stroke-dasharray="100" stroke-dashoffset="100"/><g id="h-sun"><circle r="7.5" fill="#ffb43b" stroke="#fffaf0" stroke-width="2.5"/></g></svg><div class="clock" id="h-clock">06:00</div></div>
       <div class="dayname"><span class="k" id="h-dayk"></span><b id="h-dayname"></b></div></div>
     <div class="score card"><span class="k">${t('hud.score')}</span><b id="h-score">0</b></div>
+    <div class="prof card"><div class="lvb"><span class="k">${t('hud.lv')}</span><b id="h-lv">1</b></div><div><div class="xpbar" id="h-xpb"><i id="h-xp"></i></div><div class="dewc">${ICON.dew}<b id="h-dew">0</b><span id="h-dewt"></span></div></div></div>
+    <div class="tools" id="h-tools"></div>
+    <div class="touchpad"><button data-hud="gather" id="h-tgather">${t('hud.gatherBtn')}</button><button data-hud="gustBtn">${t('hud.gustBtn')}</button></div>
     <div class="wind card"><div class="dial"><div id="h-arrow">${ICON.arrow}</div></div><div><span class="k">${t('hud.wind')}</span><b id="h-windtxt"></b></div></div>
-    <div class="ctrl card"><div class="ck" id="h-ck-move">${ICON.mouse}<span>${t('hud.move')}</span></div><div class="ck" id="h-ck-gust">${ICON.mouseL}<span>${t('hud.gust')}</span><div class="cd"><i id="h-gustcd"></i></div></div><div class="ck" id="h-ck-draw">${ICON.mouseR}<span>${t('hud.draw')}</span></div></div>
+    <div class="ctrl card"><div class="ck" id="h-ck-move">${ICON.mouse}<span>${t('hud.move')}</span></div><div class="ck" id="h-ck-draw">${G.settings.swapButtons ? ICON.mouseR : ICON.mouseL}<span>${t('hud.draw')}</span></div><div class="ck" id="h-ck-gust">${G.settings.swapButtons ? ICON.mouseL : ICON.mouseR}<span>${t('hud.gust')}</span><div class="cd"><i id="h-gustcd"></i></div></div></div>
     <div id="marks"></div>
     <div id="pops"></div>
     <div id="toasts"></div>
     <div class="tip card" id="h-tip"><div class="step" id="h-tipstep">1</div><div id="h-tiptxt"></div></div>
     <div id="bigtitle"></div>
   </div>
-  <div id="panel"></div>`;
+  <div id="panel"></div>
+  <div id="reticle"></div>`;
   const $ = (id) => root.querySelector('#' + id);
-  const hudEl = $('hud'), panel = $('panel'), marks = $('marks'), pops = $('pops'), toasts = $('toasts');
+  const hudEl = $('hud'), panel = $('panel'), marks = $('marks'), pops = $('pops'), toasts = $('toasts'), reticleEl = $('reticle'), toolsEl = $('h-tools');
+  // toolbar and touch buttons talk straight to main.js
+  hudEl.addEventListener('pointerdown', (e) => {
+    const b = e.target.closest('[data-hud],[data-tool]');
+    if (!b) return;
+    e.preventDefault(); e.stopPropagation();
+    if (b.dataset.tool) on.tool?.(b.dataset.tool); else on[b.dataset.hud]?.();
+  });
   const on = {};
   let panelKind = null, openedAt = 0;
 
@@ -109,6 +133,34 @@ export function createHud(root) {
     if (el.dataset.set) { G.settings[el.dataset.set] = +el.value; on.settings?.(el.dataset.set); }
   });
 
+  const smallDew = ICON.dew.replace('<svg', '<svg width="14" height="14"');
+  function itemDesc(id, tier) {
+    const k = tier - 1;
+    switch (id) {
+      case 'whistle': return t('desc.whistle', { r: TOOL.whistle.r[k], cd: TOOL.whistle.cd[k] });
+      case 'peg': return t('desc.peg', { n: TOOL.peg.n[k], life: TOOL.peg.life[k] });
+      case 'vane': return t('desc.vane', { dur: TOOL.vane.dur[k], cd: TOOL.vane.cd[k] });
+      case 'bell': return t('desc.bell', { r: TOOL.bell.r[k], cd: TOOL.bell.cd[k] });
+      case 'embrace': return t('desc.embrace', { p: 18 * tier });
+      case 'swift': return t('desc.swift', { p: 10 * tier });
+      case 'lungs': return t('desc.lungs', { p: 25 * tier });
+      case 'roots': return t('desc.roots', { p: 20 * tier });
+      case 'prism': return t('desc.prism', { p: Math.min(100, 60 + 20 * tier), m: 1 + 0.5 * tier });
+      case 'golden': return t('desc.golden', { p: 15 * tier });
+      case 'breezling': return t('desc.breezling', { cap: TOOL.breezling.cap[k] });
+    }
+    return '';
+  }
+  const perkText = (lv) => { const p = perkAt(lv); return t('perk.' + p.key, { p: Math.round(p.v * 100) }); };
+  function profileRow(withShop) {
+    const P = G.profile, need = xpToNext(P.level);
+    const pct = P.level >= MAX_LEVEL ? 100 : Math.round((P.xp / need) * 100);
+    const shop = withShop ? `<button class="btn sun" data-act="shop" data-arg="week">${t('week.shop')}${anyAffordable() ? '<i class="dot"></i>' : ''}</button>` : '';
+    return `<div class="profile-row"><div class="lvbig"><span class="k">${esc(t('prof.level', { n: P.level }))}</span><div class="xpbar big"><i style="width:${pct}%"></i></div><span class="xptxt">${esc(t('prof.xp', { a: P.xp, b: need }))}</span></div>
+      <div class="dewbig">${ICON.dew}<b>${P.dew}</b></div>${shop}</div>`;
+  }
+  const bountyRows = (bs, reward) => bs.map((b) => `<div class="goal bonus ${b.done ? 'done' : ''} ${b.failed ? 'fail' : ''}"><div class="chk"></div><div>${esc(b.label)}</div>${reward ? `<div class="cnt rew">${smallDew}${b.dew}</div>` : `<div class="cnt">${esc(b.count || '')}</div><div class="bar"><i style="width:${Math.round(b.prog * 100)}%"></i></div>`}</div>`).join('');
+  let toolKey = '';
   const goalRows = (goalsStatus, big) => goalsStatus.map((s) => `<div class="goal ${s.done && !s.failed ? 'done' : ''} ${s.failed ? 'fail' : ''}"><div class="chk"></div><div>${esc(s.label)}</div><div class="cnt">${esc(s.count || '')}</div>${big ? '' : `<div class="bar"><i style="width:${Math.round(s.prog * 100)}%"></i></div>`}</div>`).join('');
   const dayLabel = (idx) => (idx === 'free' || idx < 0 ? t('day.free') : t('day.' + idx));
   const dayName = (idx) => (idx === 'free' || idx < 0 ? t('free.name') : t(DAYS[idx].key + '.name'));
@@ -120,6 +172,8 @@ export function createHud(root) {
     setMode(m) {
       hudEl.classList.toggle('on', m === 'playing' || m === 'paused' || m === 'dusk');
       document.body.classList.toggle('menu', m !== 'playing');
+      document.body.classList.toggle('aim', m === 'playing' && !G.touch);
+      document.body.classList.toggle('touch', !!G.touch);
     },
     closePanel() { setPanel(null); },
     // Enter presses the panel's main button (not straight after it opens, so a held key cannot skip it)
@@ -152,6 +206,7 @@ export function createHud(root) {
       }).join('');
       const best = P.best.reduce((a, b) => a + b, 0);
       setPanel('week', `<div class="sheet card"><h2>${t('week.title')}</h2><p class="lead">${t('week.sub')}</p>
+        ${profileRow(true)}
         <div class="days">${cards}</div>
         <div class="row" style="justify-content:space-between"><button class="btn ghost" data-act="title">${t('week.back')}</button><span class="k">${best ? esc(t('week.best', { n: best })) : ''}</span></div></div>`);
     },
@@ -162,21 +217,50 @@ export function createHud(root) {
         <div class="intro-head"><div class="ic">${idx === 'free' ? ICON.sun : ICON[DAY_ICON[idx]]}</div><div><span class="k">${esc(dayLabel(idx))}</span><h2>${esc(dayName(idx))}</h2></div></div>
         <p class="lead">${esc(t(day.key + '.text'))}</p>
         ${goals.length ? `<div class="goal-list"><div class="k" style="margin-bottom:4px">${t('intro.goals')}</div>${goalRows(goals, true)}</div>` : ''}
+        ${(() => { const bs = G.game.bountyStatus().map((b) => ({ ...b, done: false, failed: false })); return bs.length ? `<div class="goal-list"><div class="k" style="margin-bottom:4px">${t('intro.bonus')}</div>${bountyRows(bs, true)}</div>` : ''; })()}
+        ${(() => {
+          const tools = SHOP.filter((it) => it.kind === 'tool' && tierOf(it.id) > 0);
+          const helper = tierOf('breezling') > 0;
+          if (!tools.length && !helper) return '';
+          return `<div class="tools-intro"><span class="k">${t('intro.tools')}</span>${tools.map((it) => `<span class="tchip">${ICON[it.id]}<kbd>${it.slot}</kbd>${esc(t('item.' + it.id))}</span>`).join('')}${helper ? `<span class="tchip">${ICON.breezling}${esc(t('intro.helper'))}</span>` : ''}</div>`;
+        })()}
         <div class="row end"><button class="btn ghost" data-act="${idx === 'free' ? 'title' : 'week'}">${t('intro.back')}</button><button class="btn sun" data-act="start" data-focus>${t('intro.start')}</button></div></div>`);
     },
+    showShop() {
+      const P = G.profile;
+      const cards = SHOP.map((it) => {
+        const tier = tierOf(it.id), st = buyState(it.id);
+        const tag = it.kind === 'tool' ? t('shop.tool', { k: it.slot }) : it.kind === 'helper' ? t('shop.helper') : t('shop.passive');
+        const label = st === 'max' ? t('shop.max') : st === 'locked' ? t('shop.locked', { n: it.minLv }) : `${smallDew}${it.price[tier]}`;
+        const pips = it.price.map((_, i) => `<i class="${i < tier ? 'on' : ''}"></i>`).join('');
+        const now = tier ? `<div class="ds"><b>${t('shop.now')}:</b> ${esc(itemDesc(it.id, tier))}</div>` : `<div class="ds">${esc(itemDesc(it.id, 1))}</div>`;
+        const next = tier && tier < it.price.length ? `<div class="ds nx"><b>${t('shop.next')}:</b> ${esc(itemDesc(it.id, tier + 1))}</div>` : '';
+        return `<div class="item ${st}"><div class="ic">${ICON[it.id]}</div><div class="bd"><div class="nm">${esc(t('item.' + it.id))}</div><div class="tag">${esc(tag)}</div><div class="pips">${pips}</div>${now}${next}</div>
+          <button class="btn small ${st === 'ok' ? 'sun' : 'ghost'}" data-act="buy" data-arg="${it.id}" ${st === 'ok' ? '' : 'disabled'}>${label}</button></div>`;
+      }).join('');
+      // the way out lives in the header, so it is never below the fold
+      setPanel('shop', `<div class="sheet card shop"><div class="shop-head"><div><h2>${t('shop.title')}</h2><p class="lead">${t('shop.sub')}</p><span class="k">${esc(t('prof.level', { n: P.level }))} · ${esc(t('prof.xp', { a: P.xp, b: xpToNext(P.level) }))}</span></div>
+        <div class="shop-side"><div class="dewbig">${ICON.dew}<b>${P.dew}</b></div><button class="btn ghost" data-act="shopBack" data-focus>${t('shop.back')}</button></div></div>
+        <div class="items">${cards}</div></div>`);
+    },
+    shopName: (id) => t('shop.bought', { name: t('item.' + id) }),
+    reticle(x, y) { reticleEl.style.transform = `translate(${x}px, ${y}px)`; },
     showPause() {
       setPanel('pause', `<div class="sheet card" style="width:min(420px,94vw);text-align:center"><h2 style="margin-bottom:18px">${t('pause.title')}</h2>
         <div style="display:grid;gap:12px"><button class="btn sun" data-act="resume" data-focus>${t('pause.resume')}</button><button class="btn ghost" data-act="restart">${t('pause.restart')}</button>
         <button class="btn ghost" data-act="settings" data-arg="pause">${t('pause.settings')}</button><button class="btn ghost" data-act="quit">${t('pause.quit')}</button></div>
-        <div class="keys">${['help.move', 'help.gust', 'help.draw', 'help.rain', 'help.keys'].map((k) => `<div>${esc(t(k))}</div>`).join('')}</div></div>`);
+        <div class="keys">${['help.move', 'help.draw', 'help.gust', 'help.rain', 'help.tools', 'help.keys'].map((k) => `<div>${esc(t(k))}</div>`).join('')}</div></div>`);
     },
     showSettings(from) {
       const S = G.settings;
-      const seg = (key, opts) => `<div class="seg">${opts.map(([v, l]) => `<button class="${S[key] === v ? 'on' : ''}" data-act="set" data-arg="${key}:${v}">${esc(l)}</button>`).join('')}</div>`;
+      const seg = (key, opts) => `<div class="seg">${opts.map(([v, l]) => `<button class="${(S[key] ?? false) === v ? 'on' : ''}" data-act="set" data-arg="${key}:${v}">${esc(l)}</button>`).join('')}</div>`;
       setPanel('settings', `<div class="sheet card" style="width:min(560px,94vw)"><h2>${t('set.title')}</h2>
         <div class="set">
           <span>${t('set.volume')}</span><input type="range" min="0" max="1" step="0.05" value="${S.volume}" data-set="volume">
           <span>${t('set.music')}</span><input type="range" min="0" max="1" step="0.05" value="${S.music}" data-set="music">
+          <span>${t('set.ambience')}</span><input type="range" min="0" max="1" step="0.05" value="${S.ambience ?? 0.6}" data-set="ambience">
+          <span>${t('set.buttons')}</span>${seg('swapButtons', [[false, t('set.btn.left')], [true, t('set.btn.right')]])}
+          <span>${t('set.gather')}</span>${seg('toggleGather', [[false, t('set.hold')], [true, t('set.toggle')]])}
           <span>${t('set.quality')}</span>${seg('quality', [['low', t('set.q.low')], ['medium', t('set.q.medium')], ['high', t('set.q.high')]])}
           <span>${t('set.tilt')}</span>${seg('tilt', [[true, t('set.on')], [false, t('set.off')]])}
           <span>${t('set.relaxed')}</span>${seg('relaxed', [[true, t('set.on')], [false, t('set.off')]])}
@@ -203,15 +287,20 @@ export function createHud(root) {
         ${res.pass ? '' : `<p class="lead" style="margin:10px 0 0">${t('res.failText')}</p>`}
         ${res.finale ? `<p class="lead" style="margin:12px 0 0">${t('res.finale')}<br><b>${t('res.thanks')}</b></p>` : ''}
         <div class="goal-list" style="text-align:left;margin-top:16px">${goalRows(res.goals, true)}</div>
+        ${res.bounties && res.bounties.length ? `<div class="goal-list" style="text-align:left"><div class="k" style="margin-bottom:4px">${t('res.bounties')}</div>${bountyRows(res.bounties, true)}</div>` : ''}
         <div class="tally">${tally.map(([a, b]) => `<span>${esc(a)}</span><span>${esc(b)}</span>`).join('')}</div>
+        ${res.earned ? `<div class="k">${t('res.earned')}${res.first ? ' · ' + esc(t('res.first')) : ''}</div><div class="earn"><span>${ICON.dew}+${res.earned.dew}</span><span>+${res.earned.xp} XP</span></div>` : ''}
+        ${res.levelUps && res.levelUps.length ? `<div class="lvup">${esc(t('res.levelup', { n: res.levelUps[res.levelUps.length - 1] }))}<small>${res.levelUps.map((lv) => esc(perkText(lv))).join(' · ')}</small></div>` : ''}
         <div class="row" style="justify-content:center">
           <button class="btn ghost" data-act="week">${t('res.week')}</button>
+          <button class="btn ghost" data-act="shop" data-arg="week">${t('res.shop')}${anyAffordable() ? '<i class="dot"></i>' : ''}</button>
           <button class="btn ${res.pass ? 'ghost' : 'sun'}" data-act="retry" ${res.pass ? '' : 'data-focus'}>${t('res.retry')}</button>
           ${res.pass && !last && idx >= 0 ? `<button class="btn sun" data-act="next" data-focus>${t('res.next')}</button>` : ''}
         </div></div>`);
       // count up, then the stars pop in
       const el = panel.querySelector('#r-score'), stars = panel.querySelectorAll('#r-stars svg');
       const t0 = performance.now(), dur = 1100;
+      if (res.levelUps && res.levelUps.length) setTimeout(() => { if (panelKind === 'results') G.audio?.levelUp(); }, 1500);
       const tick = (now) => {
         const k = clamp((now - t0) / dur, 0, 1);
         el.textContent = Math.round(res.score * (1 - Math.pow(1 - k, 3)));
@@ -262,12 +351,31 @@ export function createHud(root) {
       // score
       const sc = $('h-score');
       if (+sc.dataset.v !== R.score) { sc.dataset.v = R.score; sc.textContent = R.score; sc.classList.add('bump'); clearTimeout(sc._t); sc._t = setTimeout(() => sc.classList.remove('bump'), 140); }
-      // goals
-      const gs = G.game.goalsStatus();
+      // profile: level, experience (banked plus today's) and dewdrops
+      const P = G.profile, need = xpToNext(P.level);
+      $('h-lv').textContent = P.level;
+      const xpNow = P.xp + R.xp;
+      $('h-xp').style.width = (P.level >= MAX_LEVEL ? 100 : Math.min(100, Math.round((xpNow / need) * 100))) + '%';
+      $('h-xpb').classList.toggle('full', xpNow >= need && P.level < MAX_LEVEL);
+      $('h-dew').textContent = P.dew + R.dew;
+      $('h-dewt').textContent = R.dew > 0 ? '+' + R.dew : '';
+      // toolbar
+      const slots = G.tools?.slots || [];
+      const key = slots.map((sl) => sl.id + sl.tier).join(',');
+      if (key !== toolKey) { toolKey = key; toolsEl.innerHTML = slots.map((sl) => `<button class="tool" data-tool="${sl.id}" title="${esc(t('item.' + sl.id))}"><span class="key">${sl.slot}</span>${ICON[sl.id]}<i class="cd"></i></button>`).join(''); }
+      for (const el of toolsEl.children) {
+        const sl = G.tools.slotFor(el.dataset.tool); if (!sl) continue;
+        el.style.setProperty('--p', (sl.cd / sl.cdMax).toFixed(3));
+        el.classList.toggle('ready', sl.cd <= 0);
+      }
+      $('h-tgather').classList.toggle('on', !!G.input?.touchGather);
+      reticleEl.classList.toggle('on', G.sprite.drawing);
+      // goals, then the day's bonus goals
+      const gs = G.game.goalsStatus(), bs = G.game.bountyStatus();
       const gEl = $('h-goals');
-      if (gs.length) {
+      if (gs.length || bs.length) {
         gEl.style.display = '';
-        const html = `<div class="k">${t('intro.goals')}</div>` + goalRows(gs);
+        const html = (gs.length ? `<div class="k">${t('intro.goals')}</div>` + goalRows(gs) : '') + (bs.length ? `<div class="k bk">${t('hud.bonus')}</div>` + bountyRows(bs, false) : '');
         if (gEl._h !== html) { gEl._h = html; gEl.innerHTML = html; }
       } else gEl.style.display = 'none';
       // wind
@@ -280,7 +388,7 @@ export function createHud(root) {
       $('h-windtxt').textContent = getLang() === 'zh' ? dname + '风' : 'from ' + dname;
       // controls
       const S = G.sprite;
-      $('h-gustcd').style.width = Math.round((1 - S.gustCD / 0.55) * 100) + '%';
+      $('h-gustcd').style.width = Math.round((1 - S.gustCD / (S.gustCDMax || 0.5)) * 100) + '%';
       $('h-ck-gust').classList.toggle('on', S.gustT > 0);
       $('h-ck-draw').classList.toggle('on', S.drawing);
       $('h-ck-move').classList.toggle('on', S.speed > 6);

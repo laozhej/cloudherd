@@ -3,7 +3,7 @@
 // thunderheads if you overdo it. Also the rain itself.
 import * as THREE from 'three';
 import { G, MAX_FOOT } from './state.js';
-import { CLOUD_Y, RAIN_MASS, STORM_MASS, MAX_MASS, BOUND } from './consts.js';
+import { CLOUD_Y, SPRITE_Y, RAIN_MASS, STORM_MASS, MAX_MASS, BOUND } from './consts.js';
 import { clamp, damp, lerp, rand, smoothstep, mulberry32 } from './util.js';
 import { groundAt, waterAt, insideIsland } from './island.js';
 
@@ -21,6 +21,8 @@ const TINT = {
   storm: new THREE.Color(0.34, 0.36, 0.47),
   smog: new THREE.Color(0.40, 0.36, 0.33),
   acid: new THREE.Color(0.62, 0.42, 0.80),
+  gold: new THREE.Color(1.32, 1.0, 0.36),
+  held: new THREE.Color(0.86, 0.98, 1.06),
 };
 
 const CLOUD_VS = /* glsl */`
@@ -129,7 +131,7 @@ export function createClouds(scene) {
         const r = c.R * 0.72, gy = Math.max(0, groundAt(c.x, c.z)), top = CLOUD_Y - 0.6;
         k.mesh.position.set(c.x, gy, c.z);
         k.mesh.scale.set(r, top - gy, r);
-        k.m.uniforms.uCol.value.setRGB(c.kind === 'acid' ? 0.8 : 0.78, c.kind === 'acid' ? 0.62 : 0.86, 1.0);
+        if (c.kind === 'gold') k.m.uniforms.uCol.value.setRGB(1.0, 0.86, 0.5); else k.m.uniforms.uCol.value.setRGB(c.kind === 'acid' ? 0.8 : 0.78, c.kind === 'acid' ? 0.62 : 0.86, 1.0);
       }
       k.m.uniforms.uA.value = k.a;
     }
@@ -188,7 +190,8 @@ export function createClouds(scene) {
   function mergeKinds(a, b) {
     if (a === b) return a;
     if (a === 'acid' || b === 'acid') return 'acid';
-    if ((a === 'smog' && b === 'water') || (a === 'water' && b === 'smog')) return 'acid';
+    if (a === 'smog' || b === 'smog') return 'acid';
+    if (a === 'gold' || b === 'gold') return 'gold';  // a golden cloud gilds whatever it joins
     return a;
   }
 
@@ -201,6 +204,8 @@ export function createClouds(scene) {
     const wasKind = a.kind;
     a.kind = mergeKinds(a.kind, b.kind);
     a.mass = m;
+    // a cloud being carried stays carried after it swallows another
+    if (!a.holder && b.holder) a.holder = b.holder;
     a.wobV += 5 + mb * 1.2;
     a.cool = 0.25;
     // b's puffs fly into a
@@ -210,6 +215,56 @@ export function createClouds(scene) {
     }
     const i = list.indexOf(b); if (i >= 0) list.splice(i, 1);
     api.onMerge?.(a, b, wasKind);
+  }
+
+  // a peg near this cloud, if any (pegs live in tools.js)
+  function pegFor(c) {
+    const P = G.tools?.pegs; if (!P) return null;
+    for (const p of P) if (p.on && Math.hypot(c.x - p.x, c.z - p.z) < p.r + c.R * 0.5) return p;
+    return null;
+  }
+
+  // ---------------------------------------------------------------- tethers: a ribbon of wind from each holder to what it holds
+  const TSEG = 12, TMAX = 16;
+  const tPos = new Float32Array(TMAX * TSEG * 2 * 3), tT = new Float32Array(TMAX * TSEG * 2), tC = new Float32Array(TMAX * TSEG * 2);
+  const tGeo = new THREE.BufferGeometry();
+  tGeo.setAttribute('position', new THREE.BufferAttribute(tPos, 3).setUsage(THREE.DynamicDrawUsage));
+  tGeo.setAttribute('aT', new THREE.BufferAttribute(tT, 1).setUsage(THREE.DynamicDrawUsage));
+  tGeo.setAttribute('aC', new THREE.BufferAttribute(tC, 1).setUsage(THREE.DynamicDrawUsage));
+  const tMat = new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending,
+    uniforms: { uTime: G.shared.time },
+    vertexShader: `attribute float aT; attribute float aC; varying float vT; varying float vC; void main(){ vT = aT; vC = aC; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: `uniform float uTime; varying float vT; varying float vC;
+      void main(){ float dash = 0.45 + 0.55 * smoothstep(0.2, 0.8, sin(vT * 26.0 + uTime * 10.0) * 0.5 + 0.5);
+        vec3 col = mix(vec3(0.6, 0.95, 1.2), vec3(0.6, 1.25, 0.8), vC);
+        gl_FragColor = vec4(col * dash * (0.35 + 0.4 * sin(vT * 3.14159)), 1.0); }`,
+  });
+  const tethers = new THREE.LineSegments(tGeo, tMat);
+  tethers.frustumCulled = false; tethers.renderOrder = 18;
+  scene.add(tethers);
+  function renderTethers() {
+    let n = 0;
+    const t = G.time;
+    for (const c of list) {
+      const h = c.holder; if (!h || n >= TMAX) continue;
+      const x0 = h.x, y0 = SPRITE_Y - 0.4, z0 = h.z, x1 = c.x, y1 = CLOUD_Y + 0.5, z1 = c.z;
+      const helper = h.isHelper ? 1 : 0;
+      let px = x0, py = y0, pz = z0;
+      for (let i = 1; i <= TSEG; i++) {
+        const u = i / TSEG;
+        const wob = Math.sin(u * 3.14159) * (0.9 + 0.4 * Math.sin(t * 5 + c.id));
+        const x = x0 + (x1 - x0) * u + Math.sin(t * 4 + u * 6 + c.id) * 0.25 * wob, y = y0 + (y1 - y0) * u + wob * 0.8, z = z0 + (z1 - z0) * u + Math.cos(t * 3.4 + u * 5) * 0.25 * wob;
+        const k = (n * TSEG + i - 1) * 2;
+        tPos[k * 3] = px; tPos[k * 3 + 1] = py; tPos[k * 3 + 2] = pz;
+        tPos[k * 3 + 3] = x; tPos[k * 3 + 4] = y; tPos[k * 3 + 5] = z;
+        tT[k] = (i - 1) / TSEG; tT[k + 1] = u; tC[k] = helper; tC[k + 1] = helper;
+        px = x; py = y; pz = z;
+      }
+      n++;
+    }
+    tGeo.setDrawRange(0, n * TSEG * 2);
+    tGeo.attributes.position.needsUpdate = true; tGeo.attributes.aT.needsUpdate = true; tGeo.attributes.aC.needsUpdate = true;
   }
 
   // ---------------------------------------------------------------- per-frame
@@ -225,32 +280,53 @@ export function createClouds(scene) {
       c.cool = Math.max(0, c.cool - dt);
       const R = c.R = damp(c.R, radiusOf(c.mass), 4, dt);
       const inert = inertiaOf(c.mass);
-      // relax toward the wind
-      // big clouds drift a little slower, and a cloud that is pouring all but anchors
-      const drift = (1.05 - 0.035 * Math.min(c.mass, 12)) * (c.state === 'rain' ? 0.45 : 1);
-      c.vx = damp(c.vx, W.x * W.speed * drift, 0.9, dt);
-      c.vz = damp(c.vz, W.z * W.speed * drift, 0.9, dt);
+      // ---- holding: a gathered cloud is tied to its holder (the spirit or the Breezling)
+      let holder = c.holder;
+      if (holder && (!holder.active || !holder.drawing || Math.hypot(c.x - holder.x, c.z - holder.z) > holder.leash + c.R)) holder = c.holder = null;
+      c.thrown = Math.max(0, (c.thrown || 0) - dt);
+      if (!holder && c.kind !== 'smog' && c.born > 0.5 && c.thrown <= 0) {
+        for (const h of api.holders) {
+          if (!h || !h.active || !h.drawing) continue;
+          // a cloud that is already pouring is only picked up on purpose (gathering started on top of it)
+          if (c.state === 'rain' && !h.drawStart) continue;
+          if (h.canHold && !h.canHold(c)) continue;
+          if (h.capacity !== undefined && list.reduce((n, o) => n + (o.holder === h ? 1 : 0), 0) >= h.capacity) continue;
+          if (Math.hypot(c.x - h.x, c.z - h.z) < h.capR + c.R * 0.45) { holder = c.holder = h; c.bell = false; api.onGrab?.(c, h); break; }
+        }
+      }
+      // let go of a cloud and it settles where it is instead of sailing on
+      if (c.wasHeld && !holder) { c.vx = c.vx * 0.25 + W.x * W.speed * 0.3; c.vz = c.vz * 0.25 + W.z * W.speed * 0.3; }
+      c.wasHeld = !!holder;
       let ax = 0, az = 0;
       c.drawn = Math.max(0, c.drawn - dt * 3);
       c.held = Math.max(0, (c.held || 0) - dt);
-      // let go of a cloud and it settles where it is instead of sailing on
-      if (c.wasDrawn && c.drawn < 0.5) { c.vx = c.vx * 0.3 + W.x * W.speed * 0.3; c.vz = c.vz * 0.3 + W.z * W.speed * 0.3; }
-      c.wasDrawn = c.drawn >= 0.5;
-      if (S && S.active) {
+      c.called = Math.max(0, (c.called || 0) - dt);
+      c.pegged = 0;
+      if (holder) {
+        // a stiff, damped spring: the cloud keeps up with the holder and stops when it stops
+        const k = 62 / Math.sqrt(inert), dmp = 2 * Math.sqrt(k);
+        ax += (holder.x - c.x) * k - (c.vx - holder.vx) * dmp;
+        az += (holder.z - c.z) * k - (c.vz - holder.vz) * dmp;
+        c.drawn = 1; c.held = 0.9;
+      } else {
+        // relax toward the wind; big clouds drift a little slower, and a cloud that is pouring all but anchors
+        const drift = (1.05 - 0.035 * Math.min(c.mass, 12)) * (c.state === 'rain' ? 0.45 : 1);
+        let wx = W.x * W.speed * drift, wz = W.z * W.speed * drift, relax = 0.9;
+        // a peg holds the clouds around it in place and pulls them together
+        const peg = pegFor(c);
+        if (peg) { wx = 0; wz = 0; relax = 2.4; ax += (peg.x - c.x) * 1.8; az += (peg.z - c.z) * 1.8; c.pegged = 1; }
+        if (c.called > 0 && S) {
+          // the whistle calls clouds to the spirit: no wind, a strong pull that eases off on arrival
+          const dx = S.x - c.x, dz = S.z - c.z, d = Math.hypot(dx, dz) || 1;
+          const want = Math.min(40, d * 3.2);
+          c.vx = damp(c.vx, (dx / d) * want + S.vx * 0.5, 5, dt); c.vz = damp(c.vz, (dz / d) * want + S.vz * 0.5, 5, dt);
+          c.drawn = Math.max(c.drawn, 0.6);
+        } else { c.vx = damp(c.vx, wx, relax, dt); c.vz = damp(c.vz, wz, relax, dt); }
+      }
+      if (S && S.active && !holder) {
         const dx = c.x - S.x, dz = c.z - S.z, d = Math.hypot(dx, dz) || 1e-3;
         const nx = dx / d, nz = dz / d;
-        // smog is too heavy to draw, and a cloud that is already pouring cannot be held any more
-        if (S.drawing && c.kind !== 'smog' && c.state !== 'rain') {
-          const reach = 10 + R;
-          if (d < reach) {
-            const w = Math.pow(1 - d / reach, 0.5);
-            const pull = d > 1.2 ? 26 * w : 0;
-            ax -= nx * pull / inert; az -= nz * pull / inert;
-            // carried along with the spirit
-            c.vx = damp(c.vx, S.vx, 2.4 * w, dt); c.vz = damp(c.vz, S.vz, 2.4 * w, dt);
-            c.drawn = 1; c.held = 0.9;
-          }
-        } else if (c.held <= 0) {
+        if (!S.drawing && c.held <= 0) {
           const reach = R + 3.4;
           if (d < reach) {
             const pen = (reach - d) / reach;
@@ -265,8 +341,8 @@ export function createClouds(scene) {
           }
         }
       }
-      // mountains block clouds
-      const g = groundAt(c.x, c.z);
+      // mountains block clouds (a cloud being carried is lifted over them)
+      const g = holder ? 0 : groundAt(c.x, c.z);
       if (g > CLOUD_Y - 3) {
         const e = 1.2;
         const gx = groundAt(c.x + e, c.z) - groundAt(c.x - e, c.z), gz = groundAt(c.x, c.z + e) - groundAt(c.x, c.z - e);
@@ -276,11 +352,11 @@ export function createClouds(scene) {
       }
       // far out at sea a cloud is gone for good: it thins out and dissolves
       const r = Math.hypot(c.x, c.z);
-      if (r > BOUND + 3) c.mass -= dt * 0.35 * (r - BOUND - 2) * 0.25;
+      if (r > BOUND + 3 && !holder) c.mass -= dt * 0.35 * (r - BOUND - 2) * 0.25;
       if (r > BOUND + 12) { ax -= (c.x / r) * 6; az -= (c.z / r) * 6; }
       c.vx += ax * dt; c.vz += az * dt;
-      const sp = Math.hypot(c.vx, c.vz);
-      if (sp > 16) { c.vx *= 16 / sp; c.vz *= 16 / sp; }
+      const sp = Math.hypot(c.vx, c.vz), cap = holder ? 100 : c.called > 0 ? 42 : c.thrown > 0 ? 40 : 16;
+      if (sp > cap) { c.vx *= cap / sp; c.vz *= cap / sp; }
       c.x += c.vx * dt; c.z += c.vz * dt;
       // squash spring
       c.wobV += (-c.wob * 60 - c.wobV * 7) * dt; c.wob += c.wobV * dt;
@@ -298,7 +374,12 @@ export function createClouds(scene) {
         const cx = (a.x + b.x) / 2, cz = (a.z + b.z) / 2;
         herded = Math.hypot(S.x - cx, S.z - cz) < Math.max(a.R, b.R) + 7;
       }
-      const wants = closing > 1.4 || a.drawn > 0.5 || b.drawn > 0.5 || herded || G.forceMerge;
+      // a carried cloud passes straight through one that is pouring (so a rain is never stolen by accident),
+      // and the Breezling's cloud only joins plain, idle clouds (never smog, sour clouds or someone's rain)
+      if ((a.state === 'rain' && b.holder && !a.holder) || (b.state === 'rain' && a.holder && !b.holder)) continue;
+      const plain = (c) => c.state === 'idle' && (c.kind === 'water' || c.kind === 'gold');
+      if ((a.holder?.isHelper && !b.holder && !plain(b)) || (b.holder?.isHelper && !a.holder && !plain(a))) continue;
+      const wants = closing > 1.4 || a.drawn > 0.5 || b.drawn > 0.5 || herded || (a.pegged && b.pegged) || G.forceMerge;
       if (wants && a.cool <= 0 && b.cool <= 0 && a.born > 0.6 && b.born > 0.6) {
         if (a.mass >= b.mass) merge(a, b); else merge(b, a);
         i = -1; // restart the scan after a merge
@@ -320,7 +401,9 @@ export function createClouds(scene) {
       } else if (c.state === 'idle') {
         if (c.mass >= RAIN_MASS) { c.state = 'swell'; c.swellT = 0; api.onSwell?.(c); }
         else if (overWater && Math.hypot(c.x, c.z) < BOUND) { if (c.mass < 2.4) c.mass = Math.min(2.4, c.mass + dt * 0.012 * (day.soak ?? 1)); }
-        else c.mass -= dt * (day.evap ?? 0.01) * (0.35 + 0.65 * sun);
+        else if (!c.holder && !c.pegged) c.mass -= dt * (day.evap ?? 0.01) * (0.35 + 0.65 * sun);
+      } else if (c.state === 'swell' && !c.bell && c.mass < RAIN_MASS) {
+        c.state = 'idle';
       } else if (c.state === 'swell') {
         // a cloud the spirit is drawing in holds its rain until it is let go
         if (c.drawn > 0.5) c.swellT = Math.min(c.swellT, 0.25);
@@ -331,15 +414,16 @@ export function createClouds(scene) {
         c.state = 'swell'; c.swellT = 0.25;
       } else if (c.state === 'rain') {
         c.rainT += dt;
-        const rate = (0.3 + 0.055 * c.mass) * (day.rainMul ?? 1);
-        const w = Math.min(c.mass - 0.95, rate * dt);
+        const rate = (0.3 + 0.055 * c.mass) * (day.rainMul ?? 1) * (c.bell ? 1.3 : 1);
+        const floorMass = c.bell ? 0.35 : 0.95;
+        const w = Math.max(0, Math.min(c.mass - floorMass, rate * dt));
         c.mass -= w;
         const footR = c.R * 0.72;
         c.rainedOn += w;
         if (!overWater) { G.climate.addRain(c.x, c.z, footR, w * (c.kind === 'acid' ? 0.5 : 1)); c.rainedLand += w; }
         api.onRain?.(c, w, footR, overWater);
         spawnDrops(c, rate, footR, dt);
-        if (c.mass <= 1.0) { c.state = 'idle'; api.onRainEnd?.(c); }
+        if (c.mass <= floorMass + 0.05) { c.state = 'idle'; c.bell = false; api.onRainEnd?.(c); }
       }
       if (c.storm) {
         c.strikeT -= dt;
@@ -349,8 +433,9 @@ export function createClouds(scene) {
       if (c.mass < 0.3) { remove(c); continue; }
       if (Math.hypot(c.x, c.z) > BOUND + 16) { remove(c); continue; }
       // shade darkness and tint
-      const target = c.kind === 'smog' ? TINT.smog : c.kind === 'acid' ? TINT.acid : c.storm ? TINT.storm : c.state !== 'idle' ? TINT.rain : TINT.water;
+      const target = c.kind === 'smog' ? TINT.smog : c.kind === 'acid' ? TINT.acid : c.kind === 'gold' ? TINT.gold : c.storm ? TINT.storm : c.state !== 'idle' ? TINT.rain : TINT.water;
       c.tint.lerp(target, 1 - Math.exp(-3 * dt));
+      if (c.kind === 'gold' && Math.random() < dt * 7) G.fx.sparkle(c.x + rand(-c.R, c.R) * 0.7, CLOUD_Y + rand(0, c.R * 0.6), c.z + rand(-c.R, c.R) * 0.7, 1, [1.4, 1.15, 0.5], 1);
       if (c.kind === 'water' && c.state === 'idle' && c.mass > 2) c.tint.lerp(TINT.rain, (c.mass - 2) * 0.25 * dt);
       layout(c);
     }
@@ -360,6 +445,7 @@ export function createClouds(scene) {
     if (!api.frozen) simulate(dt);
     updateDrops(dt);
     updateCurtains(dt);
+    renderTethers();
     render(dt);
   }
 
@@ -373,7 +459,7 @@ export function createClouds(scene) {
       const k = dCount++ * 6;
       drops[k] = c.x + Math.cos(a) * r; drops[k + 1] = CLOUD_Y - 0.6 + Math.random() * 1.2; drops[k + 2] = c.z + Math.sin(a) * r;
       drops[k + 3] = G.wind.x * G.wind.speed * 0.8 + c.vx * 0.5; drops[k + 4] = -24 - Math.random() * 6; drops[k + 5] = G.wind.z * G.wind.speed * 0.8 + c.vz * 0.5;
-      dKind[dCount - 1] = c.kind === 'acid' ? 1 : 0;
+      dKind[dCount - 1] = c.kind === 'acid' ? 1 : c.kind === 'gold' ? 2 : 0;
     }
   }
   function updateDrops(dt) {
@@ -397,8 +483,8 @@ export function createClouds(scene) {
       const L = 0.045;
       dPos[k] = drops[k]; dPos[k + 1] = drops[k + 1]; dPos[k + 2] = drops[k + 2];
       dPos[k + 3] = drops[k] - drops[k + 3] * L; dPos[k + 4] = drops[k + 1] - drops[k + 4] * L; dPos[k + 5] = drops[k + 2] - drops[k + 5] * L;
-      const acid = dKind[i];
-      const r = acid ? 0.75 : 0.72, g = acid ? 0.55 : 0.84, b = acid ? 0.95 : 1.0;
+      const kd = dKind[i];
+      const r = kd === 1 ? 0.75 : kd === 2 ? 1.0 : 0.72, g = kd === 1 ? 0.55 : kd === 2 ? 0.86 : 0.84, b = kd === 1 ? 0.95 : kd === 2 ? 0.45 : 1.0;
       dCol[k] = r; dCol[k + 1] = g; dCol[k + 2] = b; dCol[k + 3] = r * 0.5; dCol[k + 4] = g * 0.5; dCol[k + 5] = b * 0.6;
     }
     rainGeo.setDrawRange(0, dCount * 2);
@@ -427,6 +513,7 @@ export function createClouds(scene) {
         m4.compose(pv, q, sv);
         mesh.setMatrixAt(n, m4);
         col.copy(c.tint);
+        if (c.holder) col.lerp(TINT.held, 0.5);
         if (flick) col.addScalar(flick * 1.4);
         mesh.setColorAt(n, col);
         n++;
@@ -461,25 +548,31 @@ export function createClouds(scene) {
   }
 
   const api = {
-    list, mesh, spawn, remove, merge, radiusOf, frozen: false,
+    list, mesh, spawn, remove, merge, radiusOf, frozen: false, holders: [],
     get drops() { return dCount; },
     clear() { list.length = 0; ghosts.length = 0; dCount = 0; mesh.count = 0; rainGeo.setDrawRange(0, 0); G.shared.footCount.value = 0; for (const k of curtains) { k.cloud = null; k.a = 0; k.mesh.visible = false; } },
     update,
     // a cone of wind from the spirit
     gust(x, z, fx, fz) {
       let hits = 0;
+      const M = G.mods || {};
+      api.lastThrown = 0;
       for (const c of list.slice()) {
         const dx = c.x - x, dz = c.z - z, d = Math.hypot(dx, dz) || 1e-3;
-        const reach = 22 + c.R;
+        // a gust while gathering throws what you are holding
+        if (c.holder === G.sprite) { api.lastThrown++; c.holder = null; c.wasHeld = false; c.thrown = 0.9; c.vx = fx * 26 / inertiaOf(c.mass) * (M.gustPow || 1); c.vz = fz * 26 / inertiaOf(c.mass) * (M.gustPow || 1); hits++; continue; }
+        const reach = (22 + c.R) * (M.gustRange || 1);
         if (d > reach) continue;
         const cos = (dx * fx + dz * fz) / d;
         if (cos < 0.74 && d > c.R + 1.5) continue;
         const w = Math.pow(1 - d / reach, 0.55);
-        const imp = 15 * w / inertiaOf(c.mass);
+        const imp = 15 * w / inertiaOf(c.mass) * (M.gustPow || 1);
+        if (c.holder) { c.holder = null; c.wasHeld = false; }
+        c.thrown = 0.5;
         c.vx += (fx * 0.85 + (dx / d) * 0.15) * imp; c.vz += (fz * 0.85 + (dz / d) * 0.15) * imp;
         c.wobV -= 3 * w;
         hits++;
-        if (c.kind === 'smog') { c.mass -= 0.45 * w + 0.15; if (c.mass < 0.3) { api.onSmogCleared?.(c); remove(c); } }
+        if (c.kind === 'smog') { c.mass -= 0.45 * w + 0.15; if (c.mass < 0.3) { api.onSmogCleared?.(c, true); remove(c); } }
       }
       return hits;
     },

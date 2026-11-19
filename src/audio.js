@@ -37,7 +37,7 @@ export function createAudio() {
     master.connect(comp); comp.connect(ctx.destination);
     music = g(G.settings.music * 0.55); music.connect(master);
     sfx = g(0.9); sfx.connect(master);
-    amb = g(0.8); amb.connect(master);
+    amb = g(0.9 * (G.settings.ambience ?? 0.6)); amb.connect(master);
     noise = makeNoise('white'); brown = makeNoise('brown');
     // sea: slow swells of filtered noise
     beds.sea = g(0.05); beds.seaF = filt('lowpass', 420);
@@ -47,7 +47,8 @@ export function createAudio() {
     beds.windF = filt('bandpass', 500, 0.9); beds.wind = g(0.0);
     loop(noise, beds.windF, beds.wind, amb);
     // rain
-    beds.rainF1 = filt('highpass', 900); beds.rainF2 = filt('lowpass', 6500); beds.rain = g(0);
+    // rain: a soft, low hush rather than a hiss
+    beds.rainF1 = filt('highpass', 600); beds.rainF2 = filt('lowpass', 3200); beds.rain = g(0);
     loop(noise, beds.rainF1, beds.rainF2, beds.rain, amb);
     // fire
     beds.fireF = filt('bandpass', 1800, 0.6); beds.fire = g(0);
@@ -56,7 +57,7 @@ export function createAudio() {
     nextNote = ctx.currentTime + 0.3;
     musicTimer = setInterval(schedule, 40);
   };
-  A.setVolume = () => { if (master) master.gain.setTargetAtTime(G.settings.volume, ctx.currentTime, 0.05); if (music) music.gain.setTargetAtTime(G.settings.music * 0.55, ctx.currentTime, 0.1); };
+  A.setVolume = () => { if (!ctx) return; master.gain.setTargetAtTime(G.settings.volume, ctx.currentTime, 0.05); music.gain.setTargetAtTime(G.settings.music * 0.55, ctx.currentTime, 0.1); amb.gain.setTargetAtTime(0.9 * (G.settings.ambience ?? 0.6), ctx.currentTime, 0.1); };
   A.suspend = (yes) => { if (!ctx) return; if (yes) ctx.suspend(); else ctx.resume(); };
 
   // ---------------------------------------------------------------- per-frame beds
@@ -69,7 +70,7 @@ export function createAudio() {
     beds.windF.frequency.setTargetAtTime(380 + sp * 22 + (S?.drawing ? 300 : 0), t, 0.2);
     const st = G.clouds ? G.clouds.stats() : { raining: 0 };
     rainLvl += ((Math.min(1, st.raining * 0.35 + (st.drops > 0 ? 0.1 : 0))) - rainLvl) * Math.min(1, dt * 2);
-    beds.rain.gain.setTargetAtTime(rainLvl * 0.16, t, 0.2);
+    beds.rain.gain.setTargetAtTime(rainLvl * 0.055, t, 0.3);
     const burning = G.fire ? G.fire.burning() : 0;
     beds.fire.gain.setTargetAtTime(Math.min(0.09, burning * 0.0025), t, 0.3);
     // crackles
@@ -138,7 +139,15 @@ export function createAudio() {
     noiseBurst(t, 0.25, 0.05, 'lowpass', 800);
   };
   A.swell = () => { if (!ok()) return; const t = ctx.currentTime; tone(70, t, 0.9, 0.08, 'sine', sfx, 0.4); noiseBurst(t, 0.8, 0.03, 'lowpass', 300); };
-  A.rainStart = () => { if (!ok()) return; noiseBurst(ctx.currentTime, 0.7, 0.05, 'highpass', 1500, 0.7); };
+  A.rainStart = () => { if (!ok()) return; noiseBurst(ctx.currentTime, 0.9, 0.018, 'bandpass', 900, 0.6); };
+  // tools, the shop and levels
+  A.whistle = () => { if (!ok()) return; const t = ctx.currentTime; for (const [f0, f1, s] of [[1250, 1700, 0], [1900, 1450, 0.16]]) { const o = ctx.createOscillator(), v = g(); o.type = 'sine'; o.frequency.setValueAtTime(f0, t + s); o.frequency.exponentialRampToValueAtTime(f1, t + s + 0.14); o.connect(v); v.connect(sfx); env(v, t + s, 0.02, 0.07, 0.16); o.start(t + s); o.stop(t + s + 0.25); } };
+  A.peg = () => { if (!ok()) return; const t = ctx.currentTime; noiseBurst(t, 0.08, 0.12, 'bandpass', 700, 2); pluck(midi(84), t + 0.04, 0.1, sfx); };
+  A.vane = () => { if (!ok()) return; const t = ctx.currentTime; noiseBurst(t, 1.2, 0.12, 'bandpass', 250, 0.8, sfx, 1400); [67, 71, 74].forEach((n, i) => tone(midi(n), t + 0.1 + i * 0.08, 0.9, 0.025, 'triangle', sfx, 0.08)); };
+  A.rainbell = () => { if (!ok()) return; const t = ctx.currentTime; for (const [f, v] of [[880, 0.09], [880 * 2.76, 0.03], [1320, 0.05]]) tone(f, t, 1.6, v, 'sine', sfx, 0.004); };
+  A.buy = () => { if (!ok()) return; const t = ctx.currentTime; pluck(midi(84), t, 0.12, sfx); pluck(midi(91), t + 0.07, 0.12, sfx); pluck(midi(96), t + 0.14, 0.08, sfx); };
+  A.levelUp = () => { if (!ok()) return; const t = ctx.currentTime; [72, 76, 79, 84, 88].forEach((n, i) => pluck(midi(n), t + i * 0.08, 0.13, sfx)); [72, 79, 84].forEach((n) => tone(midi(n), t + 0.45, 1.4, 0.03, 'triangle', sfx, 0.05)); };
+  A.grab = () => { if (!ok()) return; const t = ctx.currentTime; const o = ctx.createOscillator(), v = g(); o.type = 'sine'; o.frequency.setValueAtTime(420, t); o.frequency.exponentialRampToValueAtTime(640, t + 0.08); o.connect(v); v.connect(sfx); env(v, t, 0.01, 0.05, 0.12); o.start(t); o.stop(t + 0.16); };
   A.thunder = (k = 1) => {
     if (!ok()) return; const t = ctx.currentTime;
     noiseBurst(t, 0.18, 0.5 * k, 'highpass', 1200, 0.6);

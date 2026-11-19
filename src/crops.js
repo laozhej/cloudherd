@@ -9,10 +9,10 @@ import { clamp, smoothstep, lerp, damp, toWorld, rectDist, mulberry32 } from './
 import { GRID, HALF, CELL } from './consts.js';
 
 export const CROPS = {
-  wheat: { growTime: 38, need: 0.34, score: 100, spacing: [0.95, 1.05], young: 0x8fca52, ripe: 0xf0c44c },
-  sunflower: { growTime: 48, need: 0.26, score: 120, spacing: [1.35, 1.4], young: 0x6fb244, ripe: 0x6fb244 },
-  pumpkin: { growTime: 58, need: 0.46, score: 170, spacing: [1.7, 1.7], young: 0x5f9e3a, ripe: 0xf28a24 },
-  lavender: { growTime: 34, need: 0.30, score: 90, spacing: [1.1, 1.2], young: 0x7fae6a, ripe: 0x9a7fe0 },
+  wheat: { growTime: 38, need: 0.34, score: 100, dew: 6, spacing: [0.95, 1.05], young: 0x8fca52, ripe: 0xf0c44c },
+  sunflower: { growTime: 48, need: 0.26, score: 120, dew: 7, spacing: [1.35, 1.4], young: 0x6fb244, ripe: 0x6fb244 },
+  pumpkin: { growTime: 58, need: 0.46, score: 170, dew: 10, spacing: [1.7, 1.7], young: 0x5f9e3a, ripe: 0xf28a24 },
+  lavender: { growTime: 34, need: 0.30, score: 90, dew: 5, spacing: [1.1, 1.2], young: 0x7fae6a, ripe: 0x9a7fe0 },
 };
 const BROWN = new THREE.Color(0x9c7a4a), DEAD = new THREE.Color(0x6e5a3e);
 
@@ -142,7 +142,7 @@ export function createCrops(scene) {
       // plan: array of crop types (or null) per field
       fields.forEach((f, i) => {
         plant(f, plan[i] || null);
-        f.growth = plan.startGrowth?.[i] ?? 0.15; f.gv = f.growth; f.health = 1; f.hv = 1; f.dead = false; f.deadT = 0; f.harvests = 0; f.pop = 0; f.acid = 0; f.warnT = 0;
+        f.growth = plan.startGrowth?.[i] ?? 0.15; f.gv = f.growth; f.health = 1; f.hv = 1; f.dead = false; f.deadT = 0; f.harvests = 0; f.pop = 0; f.acid = 0; f.warnT = 0; f.golden = 0;
       });
       assign();
       api.render(0);
@@ -157,10 +157,10 @@ export function createCrops(scene) {
           f.moist = s / f.cells.length;
           // smog parked over a field shades it
           f.smog = 0;
-          for (const c of G.clouds.list) if (c.kind !== 'water' && Math.hypot(c.x - f.def.x, c.z - f.def.z) < c.R + 3) f.smog = 1;
+          for (const c of G.clouds.list) if ((c.kind === 'smog' || c.kind === 'acid') && Math.hypot(c.x - f.def.x, c.z - f.def.z) < c.R + 3) f.smog = 1;
         }
       }
-      const growMul = G.day?.growMul ?? 1, wiltMul = G.day?.wiltMul ?? 1;
+      const growMul = (G.day?.growMul ?? 1) * (G.mods?.grow ?? 1), wiltMul = (G.day?.wiltMul ?? 1) * (G.mods?.wilt ?? 1);
       for (const f of fields) {
         if (!f.active) continue;
         const T = CROPS[f.type];
@@ -176,15 +176,18 @@ export function createCrops(scene) {
           continue;
         }
         const m = f.moist, need = T.need;
+        // golden rain makes everything under it shoot up
+        const gold = f.golden > 0 ? 2.4 : 1;
+        f.golden = Math.max(0, (f.golden || 0) - dt);
         if (m >= need) {
           const q = 0.6 + 0.4 * smoothstep(need, need + 0.3, m);
-          f.growth += (dt / T.growTime) * q * growMul * (f.smog ? 0.45 : 1) * (G.pace ?? 1);
+          f.growth += (dt / T.growTime) * q * growMul * gold * (f.smog ? 0.45 : 1) * (G.pace ?? 1);
           f.health = Math.min(1, f.health + dt * 0.09);
         } else if (m >= need - 0.12) {
           f.growth += (dt / T.growTime) * 0.12 * growMul * (G.pace ?? 1);
         } else {
           const thirst = 1 + (need - 0.12 - m) * 3;
-          f.health -= (dt / 42) * thirst * wiltMul * (G.pace ?? 1);
+          f.health -= (dt / 56) * thirst * wiltMul * (G.pace ?? 1);
         }
         if (f.acid > 0) { f.health -= f.acid * dt * 0.6; f.acid = Math.max(0, f.acid - dt * 1.5); }
         if (f.health <= 0) { f.health = 0; f.dead = true; f.deadT = 0; f.growth = 0; api.onWither?.(f); continue; }
